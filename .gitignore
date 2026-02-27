@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Binaries
+/chsync
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+*.sql
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
