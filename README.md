@@ -4,14 +4,16 @@
 
 ## Motivation
 
-Traditional migration tools (Flyway, Liquibase, Atlas) assume the database is only ever changed through migrations. That assumption breaks the moment anyone runs an ad-hoc `ALTER TABLE` in production — and that happens: an analyst needs a column for a quick experiment, someone applies a hotfix directly, or the database is on fire and you patch it live.
+Traditional migration tools (Flyway, Liquibase, migrate) assume the database is only ever changed through migrations. That assumption breaks the moment anyone runs an ad-hoc `ALTER TABLE` in production — and that happens: an analyst needs a column for a quick experiment, someone applies a hotfix directly, or the database is on fire and you patch it live.
 
 `chsync` takes the opposite approach: look at what is actually in the database, compare it against what your code expects, and generate what needs to change. No migration history, no lock files, no drift surprises.
 
-Two patterns we use it for:
+Common use cases:
 
-- Analyst environments get flexibility — they can add columns and experiment freely. Before a release, `chsync diff` shows what needs to be reconciled.
-- Controlled environments have a `.sql` snapshot committed to the repo. `chsync diff` detects drift before it causes problems.
+- **Schema context for coding agents** — a version controlled `.sql` snapshot gives AI coding assistants an always-current view of your data model without any extra tooling.
+- **Local database initialization** — seed a local or CI database directly from the snapshot, bypassing hundreds of incremental migrations.
+- **Schema-first iteration** — make changes directly in a staging or production database, then use `chsync snapshot` to reflect them back into the committed model. Useful for analyst-owned databases or when you want to iterate quickly without going through a migration pipeline.
+- **Environment parity** — use `chsync diff` to keep staging and production in sync and catch drift before it becomes a problem.
 
 The snapshot file also doubles as always-up-to-date schema context for coding assistants — one file in the repo is all they need.
 
