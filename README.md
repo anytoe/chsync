@@ -178,14 +178,14 @@ sequenceDiagram
     Note over CLI: Same for --to source
 
     CLI->>CH: LoadSchema(filter) [from]
-    CH->>CH: loadDatabases() → loadTables() → loadColumns() → loadFunctions()
+    CH->>CH: loadDatabases, loadTables, loadColumns, loadFunctions
     CH-->>CLI: Schema
 
     CLI->>CH: LoadSchema(filter) [to]
     CH-->>CLI: Schema
 
     CLI->>CH: LoadTypeAliases() [both]
-    CH-->>CLI: map[alias → canonical type]
+    CH-->>CLI: map of alias to canonical type
 
     CLI->>Models: NewCombinedSchema(from, to)
     Models->>Models: Tag each DB/Table/Column/Function as Source | Target | Both
@@ -195,16 +195,9 @@ sequenceDiagram
     Models->>Models: Detect table renames (Jaccard ≥ 0.80)
     Models->>Models: Detect column renames (weighted similarity ≥ 0.70)
 
-    loop Each DB/Table/Column/Function
-        alt Target only → CREATE
-        else Source only → DROP
-        else Both, ENGINE/ORDER changed → DROP + CREATE
-        else Both, renamed + no prop change → RENAME
-        else Both → MODIFY COLUMN / position clause
-        end
-    end
+    Note over Models: Target only = CREATE<br/>Source only = DROP<br/>Both + ENGINE/ORDER changed = DROP + CREATE<br/>Both + renamed = RENAME<br/>Both = MODIFY COLUMN / reposition
 
-    Models-->>CLI: SyncPlan (Strategies → Operations → SQL)
+    Models-->>CLI: SyncPlan (Strategies, Operations, SQL)
 
     CLI->>CLI: Format SQL with comments
     CLI->>CLI: WriteFile(migration.sql)
