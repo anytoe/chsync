@@ -116,6 +116,100 @@ Scope the diff to a single database:
 chsync diff --from prod_current.sql --to schema.sql --only-dbs analytics
 ```
 
+## How it works
+
+### snapshot
+
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant CH as ClickHouse Client
+    participant Docker
+
+    CLI->>CLI: Parse flags (--from DSN, filters, --verify)
+    CLI->>CH: Connect(dsn)
+    CH-->>CLI: Client
+
+    CLI->>CH: ExportSQL(filter)
+    CH->>CH: SELECT version()
+    CH->>CH: UNION query: system.databases + system.tables (ordered: DB → Table → MV → View)
+    CH->>CH: cleanupSharedMergeTree() + addTimeTypeSetting() per statement
+    CH->>CH: SELECT system.functions WHERE origin = 'SQLUserDefined'
+    CH-->>CLI: SQLStatements (version + cleaned statements[])
+
+    alt --verify flag set
+        CLI->>Docker: IsDockerAvailable()
+        CLI->>Docker: StartWithSchema(stmts)
+        Docker->>Docker: Spin up clickhouse-server container
+        Docker->>Docker: Execute each statement
+        alt Any statement fails
+            Docker-->>CLI: Error + terminate container
+        else All pass
+            Docker-->>CLI: OK + terminate container
+        end
+    end
+
+    CLI->>CLI: ToStatements() → header + statements joined by \n\n
+    CLI->>CLI: sqlfmt.Format()
+    CLI->>CLI: WriteFile(snapshot.sql)
+```
+
+### diff
+
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant Docker
+    participant CH as ClickHouse Client
+    participant Models
+
+    CLI->>CLI: Parse flags (--from, --to, filters)
+    CLI->>Docker: IsDockerAvailable() [if .sql input]
+
+    alt --from is .sql file
+        CLI->>Models: ParseFile()
+        CLI->>Docker: StartWithSchema()
+        Docker-->>CLI: Client (container)
+    else --from is DSN
+        CLI->>CH: Connect(dsn)
+        CH-->>CLI: Client
+    end
+
+    Note over CLI: Same for --to source
+
+    CLI->>CH: LoadSchema(filter) [from]
+    CH->>CH: loadDatabases() → loadTables() → loadColumns() → loadFunctions()
+    CH-->>CLI: Schema
+
+    CLI->>CH: LoadSchema(filter) [to]
+    CH-->>CLI: Schema
+
+    CLI->>CH: LoadTypeAliases() [both]
+    CH-->>CLI: map[alias → canonical type]
+
+    CLI->>Models: NewCombinedSchema(from, to)
+    Models->>Models: Tag each DB/Table/Column/Function as Source | Target | Both
+    Models-->>CLI: CombinedSchema
+
+    CLI->>Models: SyncPlanGenerator.Generate(combined)
+    Models->>Models: Detect table renames (Jaccard ≥ 0.80)
+    Models->>Models: Detect column renames (weighted similarity ≥ 0.70)
+
+    loop Each DB/Table/Column/Function
+        alt Target only → CREATE
+        else Source only → DROP
+        else Both, ENGINE/ORDER changed → DROP + CREATE
+        else Both, renamed + no prop change → RENAME
+        else Both → MODIFY COLUMN / position clause
+        end
+    end
+
+    Models-->>CLI: SyncPlan (Strategies → Operations → SQL)
+
+    CLI->>CLI: Format SQL with comments
+    CLI->>CLI: WriteFile(migration.sql)
+```
+
 ## Supported functionality
 
 ### snapshot
