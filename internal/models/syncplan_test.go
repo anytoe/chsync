@@ -156,8 +156,8 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN id Int64;"}},
 			},
 		},
-		{ // TODO there's no default set
-			name: "column default changed",
+		{
+			name: "column default added",
 			from: func() Schema {
 				return baseSchema().
 					setColumnDefault("db1", "users", "name", "").
@@ -169,7 +169,41 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN name String;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN name String DEFAULT 'unknown';"}},
+			},
+		},
+		{
+			name: "column default expression changed",
+			from: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "end_time", "DateTime").
+					setColumnDefault("db1", "users", "end_time", "addHours(start_time, 6)").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "end_time", "DateTime").
+					setColumnDefault("db1", "users", "end_time", "addHours(end_time, 6)").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN end_time DateTime DEFAULT addHours(end_time, 6);"}},
+			},
+		},
+		{
+			name: "column default removed",
+			from: func() Schema {
+				return baseSchema().
+					setColumnDefault("db1", "users", "name", "'unknown'").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setColumnDefault("db1", "users", "name", "").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN name String REMOVE DEFAULT;"}},
 			},
 		},
 		{
