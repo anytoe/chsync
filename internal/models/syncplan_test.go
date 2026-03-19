@@ -32,7 +32,7 @@ func TestSyncPlanGenerator_ColumnPositionOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE db1.users ADD COLUMN email String FIRST;"}},
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `email` String FIRST;"}},
 			},
 		},
 		{
@@ -45,7 +45,7 @@ func TestSyncPlanGenerator_ColumnPositionOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE db1.users ADD COLUMN email String AFTER id;"}},
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `email` String AFTER `id`;"}},
 			},
 		},
 		{
@@ -62,7 +62,7 @@ func TestSyncPlanGenerator_ColumnPositionOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN email String AFTER id;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `email` String AFTER `id`;"}},
 			},
 		},
 		{
@@ -77,7 +77,7 @@ func TestSyncPlanGenerator_ColumnPositionOperations(t *testing.T) {
 			},
 			to: func() Schema { return baseSchema().build() }, // [id, name]
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionDrop, statements: []string{"ALTER TABLE db1.users DROP COLUMN IF EXISTS extra;"}},
+				{level: LevelColumn, action: ActionDrop, statements: []string{"ALTER TABLE `db1`.`users` DROP COLUMN IF EXISTS `extra`;"}},
 			},
 		},
 		{
@@ -98,8 +98,8 @@ func TestSyncPlanGenerator_ColumnPositionOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionRename, statements: []string{"ALTER TABLE db1.users RENAME COLUMN old_name TO name;"}},
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN email String AFTER id;"}},
+				{level: LevelColumn, action: ActionRename, statements: []string{"ALTER TABLE `db1`.`users` RENAME COLUMN `old_name` TO `name`;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `email` String AFTER `id`;"}},
 			},
 		},
 	}
@@ -125,7 +125,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{"ALTER TABLE db1.users ADD COLUMN email String AFTER name;"}},
+				{level: LevelColumn, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `email` String AFTER `name`;"}},
 			},
 		},
 		{
@@ -137,7 +137,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 			},
 			to: func() Schema { return baseSchema().build() },
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"ALTER TABLE db1.users DROP COLUMN IF EXISTS email;"}},
+				{level: LevelColumn, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"ALTER TABLE `db1`.`users` DROP COLUMN IF EXISTS `email`;"}},
 			},
 		},
 		{
@@ -153,7 +153,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN id Int64;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `id` Int64;"}},
 			},
 		},
 		{ // TODO there's no default set
@@ -169,7 +169,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN name String;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String;"}},
 			},
 		},
 		{
@@ -182,7 +182,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 			},
 			to: func() Schema { return baseSchema().build() }, // has "name" column
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionRename, statements: []string{"ALTER TABLE db1.users RENAME COLUMN full_name TO name;"}},
+				{level: LevelColumn, action: ActionRename, statements: []string{"ALTER TABLE `db1`.`users` RENAME COLUMN `full_name` TO `name`;"}},
 			},
 		},
 		{
@@ -199,9 +199,9 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionDrop, statements: []string{"ALTER TABLE db1.users DROP COLUMN IF EXISTS old_field;"}},
-				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE db1.users ADD COLUMN email String AFTER name;"}},
-				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE db1.users ADD COLUMN phone String AFTER email;"}},
+				{level: LevelColumn, action: ActionDrop, statements: []string{"ALTER TABLE `db1`.`users` DROP COLUMN IF EXISTS `old_field`;"}},
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `email` String AFTER `name`;"}},
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `phone` String AFTER `email`;"}},
 			},
 		},
 	}
@@ -231,7 +231,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE db1.products (id Int32, name String) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`products` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id);",
 				}},
 			},
 		},
@@ -244,7 +244,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS db1.orders;"}},
+				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS `db1`.`orders`;"}},
 			},
 		},
 		{
@@ -261,9 +261,9 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				// Engine change typically requires drop + create
-				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS db1.users;"}},
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE db1.users (id Int32, name String) ENGINE = ReplacingMergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = ReplacingMergeTree ORDER BY (id);",
 				}},
 			},
 		},
@@ -281,9 +281,9 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				// ORDER BY change requires table recreation
-				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS db1.users;"}},
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE db1.users (id Int32, name String) ENGINE = MergeTree ORDER BY (id, name);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id, name);",
 				}},
 			},
 		},
@@ -296,9 +296,9 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			to: func() Schema { return baseSchema().build() }, // no explicit PrimaryKey
 			wantOperations: []expectedOperation{
-				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS db1.users;"}},
+				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE db1.users (id Int32, name String) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id);",
 				}},
 			},
 		},
@@ -312,9 +312,9 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS db1.users;"}},
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE db1.users (id Int32, name String) ENGINE = MergeTree ORDER BY (id, name) PRIMARY KEY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id, name) PRIMARY KEY (id);",
 				}},
 			},
 		},
@@ -330,9 +330,9 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS db1.orders;"}},
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`orders`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE db1.purchases (id Int32) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`purchases` (`id` Int32) ENGINE = MergeTree ORDER BY (id);",
 				}},
 			},
 		},
@@ -350,7 +350,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			to: func() Schema { return baseSchema().build() }, // has "users" table
 			wantOperations: []expectedOperation{
 				// With high similarity (same columns), should generate RENAME
-				{level: LevelTable, action: ActionRename, statements: []string{"RENAME TABLE db1.user_accounts TO db1.users;"}},
+				{level: LevelTable, action: ActionRename, statements: []string{"RENAME TABLE `db1`.`user_accounts` TO `db1`.`users`;"}},
 			},
 		},
 		{
@@ -383,9 +383,9 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS db1.user_accounts;"}},
+				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS `db1`.`user_accounts`;"}},
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE db1.users (id Int32, name String, email String, phone String) ENGINE = MergeTree ORDER BY (id, name);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String, `email` String, `phone` String) ENGINE = MergeTree ORDER BY (id, name);",
 				}},
 			},
 		},
@@ -412,7 +412,7 @@ func TestSyncPlanGenerator_DatabaseOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelDatabase, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{"CREATE DATABASE db2;"}},
+				{level: LevelDatabase, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{"CREATE DATABASE `db2`;"}},
 			},
 		},
 		{
@@ -424,7 +424,7 @@ func TestSyncPlanGenerator_DatabaseOperations(t *testing.T) {
 			},
 			to: func() Schema { return baseSchema().build() },
 			wantOperations: []expectedOperation{
-				{level: LevelDatabase, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP DATABASE IF EXISTS db2;"}},
+				{level: LevelDatabase, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP DATABASE IF EXISTS `db2`;"}},
 			},
 		},
 	}
@@ -525,11 +525,11 @@ func TestSyncPlanGenerator_MixedOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionDrop, statements: []string{"ALTER TABLE db1.users DROP COLUMN IF EXISTS old_field;"}},
-				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE db1.users ADD COLUMN email String AFTER name;"}},
-				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS db1.orders;"}},
+				{level: LevelColumn, action: ActionDrop, statements: []string{"ALTER TABLE `db1`.`users` DROP COLUMN IF EXISTS `old_field`;"}},
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `email` String AFTER `name`;"}},
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`orders`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE db1.products (id Int32) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`products` (`id` Int32) ENGINE = MergeTree ORDER BY (id);",
 				}},
 			},
 		},
