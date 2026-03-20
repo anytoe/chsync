@@ -156,7 +156,7 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 	cond += tableFilterClauses(f, "name")
 
 	query := fmt.Sprintf(
-		"SELECT database, name, engine, sorting_key, partition_key FROM system.tables WHERE %s ORDER BY database, name",
+		"SELECT database, name, engine, sorting_key, primary_key, partition_key FROM system.tables WHERE %s ORDER BY database, name",
 		cond,
 	)
 
@@ -168,8 +168,8 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 
 	tables := make(map[string]models.Table)
 	for rows.Next() {
-		var dbName, name, engine, sortingKey, partitionKey string
-		if err := rows.Scan(&dbName, &name, &engine, &sortingKey, &partitionKey); err != nil {
+		var dbName, name, engine, sortingKey, primaryKey, partitionKey string
+		if err := rows.Scan(&dbName, &name, &engine, &sortingKey, &primaryKey, &partitionKey); err != nil {
 			return nil, fmt.Errorf("scan table: %w", err)
 		}
 
@@ -180,6 +180,9 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 		}
 		if sortingKey != "" {
 			table.OrderBy = strings.Split(sortingKey, ", ")
+		}
+		if primaryKey != "" && primaryKey != sortingKey {
+			table.PrimaryKey = strings.Split(primaryKey, ", ")
 		}
 
 		tables[dbName+"."+name] = table

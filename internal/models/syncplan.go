@@ -457,11 +457,18 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 						reasons = append(reasons, "default: "+srcDefault+" → "+tgtDefault)
 					}
 					explanation := "Modify column " + col.Name + " in " + table.Name + " [" + strings.Join(reasons, "; ") + "]"
+					modifyStmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type
+					if col.Target.DefaultExpression != "" {
+						modifyStmt += " DEFAULT " + col.Target.DefaultExpression
+					} else if col.Source.DefaultExpression != "" {
+						modifyStmt += " REMOVE DEFAULT"
+					}
+					modifyStmt += ";"
 					operations = append(operations, Operation{
 						Level:       LevelColumn,
 						Action:      ActionAlter,
 						CanLoseData: false,
-						Statements:  []string{"ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type + ";"},
+						Statements:  []string{modifyStmt},
 						Explanation: explanation,
 					})
 				} else if tgtRankAmongCommon[col.Name] < srcRankAmongCommon[col.Name] {
