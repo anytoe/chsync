@@ -169,10 +169,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-<<<<<<< HEAD
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String;"}},
-=======
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN name String DEFAULT 'unknown';"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String DEFAULT 'unknown';"}},
 			},
 		},
 		{
@@ -190,7 +187,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN end_time DateTime DEFAULT addHours(end_time, 6);"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `end_time` DateTime DEFAULT addHours(end_time, 6);"}},
 			},
 		},
 		{
@@ -206,8 +203,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE db1.users MODIFY COLUMN name String REMOVE DEFAULT;"}},
->>>>>>> main
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String REMOVE DEFAULT;"}},
 			},
 		},
 		{
