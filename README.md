@@ -140,6 +140,8 @@ chsync diff --from prod_current.sql --to schema.sql --only-dbs analytics
 | Modify column type or default | yes |
 | Table engine change | yes (drop + recreate) |
 | ORDER BY change | yes (drop + recreate) |
+| ORDER BY tuple() | yes |
+| ORDER BY and PRIMARY KEY differ | yes |
 | Create / drop SQL UDF | yes |
 | Modify SQL UDF | yes (drop + recreate) |
 | Column codec (compression) | no |
