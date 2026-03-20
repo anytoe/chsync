@@ -29,8 +29,9 @@ Rules:
 
 ## Steps
 
-1. Run `git status` to see what is staged/unstaged
-2. Stage relevant files with `git add <files>` (avoid `git add .` or `git add -A`)
-3. Draft the commit message following the rules above
-4. Commit: `git commit -m "<message>"`
-5. Confirm with `git status`
+1. Run `git fetch` and check if the current branch is behind its remote. If so, run `git pull` before proceeding.
+2. Run `git status` to see what is staged/unstaged
+3. Stage relevant files with `git add <files>` (avoid `git add .` or `git add -A`)
+4. Draft the commit message following the rules above
+5. Commit: `git commit -m "<message>"`
+6. Confirm with `git status`
