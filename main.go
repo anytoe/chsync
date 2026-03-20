@@ -209,10 +209,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 	if output == "" {
 		fmt.Println("No differences found.")
+		return nil
 	}
 
-	// Always write (or truncate) the output file
-	if output != "" && !strings.HasSuffix(output, "\n") {
+	if !strings.HasSuffix(output, "\n") {
 		output += "\n"
 	}
 	if err := os.WriteFile(diffOutFile, []byte(output), 0644); err != nil {
