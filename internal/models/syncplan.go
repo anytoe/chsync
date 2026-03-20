@@ -110,7 +110,7 @@ func (g *SyncPlanGenerator) buildHybridStrategy(combined *CombinedSchema) Strate
 				Level:         LevelDatabase,
 				Action:        ActionCreate,
 				CanLoseData: false,
-				Statements:    []string{"CREATE DATABASE " + db.Name + ";"},
+				Statements:    []string{"CREATE DATABASE " + quoteIdent(db.Name) + ";"},
 				Explanation:   "Create database " + db.Name,
 			})
 		case Source:
@@ -118,7 +118,7 @@ func (g *SyncPlanGenerator) buildHybridStrategy(combined *CombinedSchema) Strate
 				Level:         LevelDatabase,
 				Action:        ActionDrop,
 				CanLoseData: true,
-				Statements:    []string{"DROP DATABASE IF EXISTS " + db.Name + ";"},
+				Statements:    []string{"DROP DATABASE IF EXISTS " + quoteIdent(db.Name) + ";"},
 				Explanation:   "Drop database " + db.Name,
 			})
 		case Both:
@@ -244,7 +244,7 @@ func (g *SyncPlanGenerator) processTablesInDatabase(db CombinedDatabase) []Opera
 						Level:         LevelTable,
 						Action:        ActionRename,
 						CanLoseData: false,
-						Statements:    []string{"RENAME TABLE " + db.Name + "." + table.Name + " TO " + db.Name + "." + newName + ";"},
+						Statements:    []string{"RENAME TABLE " + quoteIdent(db.Name) + "." + quoteIdent(table.Name) + " TO " + quoteIdent(db.Name) + "." + quoteIdent(newName) + ";"},
 						Explanation:   "Rename table " + table.Name + " to " + newName,
 					})
 				}
@@ -274,7 +274,7 @@ func (g *SyncPlanGenerator) processTableChanges(dbName string, table CombinedTab
 				Level:       LevelTable,
 				Action:      ActionDrop,
 				CanLoseData: true,
-				Statements:  []string{"DROP TABLE IF EXISTS " + dbName + "." + table.Name + ";"},
+				Statements:  []string{"DROP TABLE IF EXISTS " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + ";"},
 				Explanation: "Drop table " + table.Name + " (requires recreation)",
 			})
 			operations = append(operations, g.createTableOperation(dbName, table))
@@ -343,7 +343,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 				if i == 0 {
 					return "FIRST"
 				}
-				return "AFTER " + targetCols[i-1]
+				return "AFTER " + quoteIdent(targetCols[i-1])
 			}
 		}
 		return ""
@@ -406,7 +406,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 		case Target:
 			// Check if this is a rename target
 			if !isRenameTarget(col.Name, renamedColumns) {
-				stmt := "ALTER TABLE " + dbName + "." + table.Name + " ADD COLUMN " + col.Name + " " + col.Target.Type
+				stmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " ADD COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type
 				if pos := positionClause(col.Name); pos != "" {
 					stmt += " " + pos
 				}
@@ -425,7 +425,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 					Level:       LevelColumn,
 					Action:      ActionRename,
 					CanLoseData: false,
-					Statements:  []string{"ALTER TABLE " + dbName + "." + table.Name + " RENAME COLUMN " + col.Name + " TO " + newName + ";"},
+					Statements:  []string{"ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " RENAME COLUMN " + quoteIdent(col.Name) + " TO " + quoteIdent(newName) + ";"},
 					Explanation: "Rename column " + col.Name + " to " + newName,
 				})
 			} else {
@@ -433,7 +433,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 					Level:       LevelColumn,
 					Action:      ActionDrop,
 					CanLoseData: true,
-					Statements:  []string{"ALTER TABLE " + dbName + "." + table.Name + " DROP COLUMN IF EXISTS " + col.Name + ";"},
+					Statements:  []string{"ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " DROP COLUMN IF EXISTS " + quoteIdent(col.Name) + ";"},
 					Explanation: "Drop column " + col.Name + " from " + table.Name + " (mutation — runs in background)",
 				})
 			}
@@ -457,7 +457,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 						reasons = append(reasons, "default: "+srcDefault+" → "+tgtDefault)
 					}
 					explanation := "Modify column " + col.Name + " in " + table.Name + " [" + strings.Join(reasons, "; ") + "]"
-					modifyStmt := "ALTER TABLE " + dbName + "." + table.Name + " MODIFY COLUMN " + col.Name + " " + col.Target.Type
+					modifyStmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type
 					if col.Target.DefaultExpression != "" {
 						modifyStmt += " DEFAULT " + col.Target.DefaultExpression
 					} else if col.Source.DefaultExpression != "" {
@@ -479,7 +479,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 						Level:       LevelColumn,
 						Action:      ActionAlter,
 						CanLoseData: false,
-						Statements:  []string{"ALTER TABLE " + dbName + "." + table.Name + " MODIFY COLUMN " + col.Name + " " + col.Target.Type + " " + positionClause(col.Name) + ";"},
+						Statements:  []string{"ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type + " " + positionClause(col.Name) + ";"},
 						Explanation: "Move column " + col.Name + " in " + table.Name,
 					})
 				}
@@ -503,7 +503,7 @@ func (g *SyncPlanGenerator) createTableOperation(dbName string, table CombinedTa
 
 func buildCreateTableSQL(dbName string, table CombinedTable) string {
 	if table.Target == nil {
-		return "CREATE TABLE " + dbName + "." + table.Name + ";"
+		return "CREATE TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + ";"
 	}
 
 	// Collect columns that exist in target
@@ -513,7 +513,7 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 			continue
 		}
 		props := col.Target
-		def := col.Name + " " + props.Type
+		def := quoteIdent(col.Name) + " " + props.Type
 		if props.DefaultExpression != "" {
 			def += " DEFAULT " + props.DefaultExpression
 		}
@@ -527,9 +527,11 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 	}
 
 	t := table.Target
-	sql := fmt.Sprintf("CREATE TABLE %s.%s (%s) ENGINE = %s", dbName, table.Name, strings.Join(colDefs, ", "), t.Engine)
+	sql := fmt.Sprintf("CREATE TABLE %s.%s (%s) ENGINE = %s", quoteIdent(dbName), quoteIdent(table.Name), strings.Join(colDefs, ", "), t.Engine)
 	if len(t.OrderBy) > 0 {
 		sql += " ORDER BY (" + strings.Join(t.OrderBy, ", ") + ")"
+	} else if strings.Contains(t.Engine, "MergeTree") {
+		sql += " ORDER BY tuple()"
 	}
 	if len(t.PrimaryKey) > 0 && !equalStringSlices(t.PrimaryKey, t.OrderBy) {
 		sql += " PRIMARY KEY (" + strings.Join(t.PrimaryKey, ", ") + ")"
@@ -557,9 +559,14 @@ func (g *SyncPlanGenerator) dropTableOperation(dbName string, table CombinedTabl
 		Level:         LevelTable,
 		Action:        ActionDrop,
 		CanLoseData: true,
-		Statements:    []string{"DROP TABLE IF EXISTS " + dbName + "." + table.Name + ";"},
+		Statements:    []string{"DROP TABLE IF EXISTS " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + ";"},
 		Explanation:   "Drop table " + table.Name,
 	}
+}
+
+// quoteIdent wraps a ClickHouse identifier in backticks, escaping internal backticks by doubling.
+func quoteIdent(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
 func isRenameTarget(name string, renamedMap map[string]string) bool {
