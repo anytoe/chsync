@@ -133,7 +133,7 @@ sequenceDiagram
     CLI->>CH: ExportSQL(filter)
     CH->>CH: SELECT version()
     CH->>CH: UNION query: system.databases + system.tables (ordered: DB → Table → MV → View)
-    CH->>CH: cleanupSharedMergeTree() + addTimeTypeSetting() per statement
+    CH->>CH: Clear Cloud specifics: cleanupSharedMergeTree() + addTimeTypeSetting() per statement
     CH->>CH: SELECT system.functions WHERE origin = 'SQLUserDefined'
     CH-->>CLI: SQLStatements (version + cleaned statements[])
 
@@ -150,7 +150,7 @@ sequenceDiagram
     end
 
     CLI->>CLI: ToStatements() → header + statements joined by \n\n
-    CLI->>CLI: sqlfmt.Format()
+    CLI->>CLI: sqlfmt.Format() - Using: github.com/maxrichie5/go-sqlfmt
     CLI->>CLI: WriteFile(snapshot.sql)
 ```
 
@@ -211,11 +211,11 @@ sequenceDiagram
 |---|---|
 | Databases | yes |
 | Tables (MergeTree family) | yes |
-| Views | yes (exported as-is) |
-| Materialized views | yes (exported as-is) |
+| Views | yes |
+| Materialized views | yes |
 | SQL UDFs | yes |
 | Executable UDFs | no (XML-based, no create_query) |
-| Dictionaries | yes (exported as-is) |
+| Dictionaries | yes |
 
 ### diff / migration
 
