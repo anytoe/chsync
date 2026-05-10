@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,18 +41,19 @@ var (
 	toSource        string
 	diffOutFile     string
 	snapshotOutFile string
-	diffOnlyDbs    string
-	diffSkipDbs    string
-	diffOnlyTables string
-	diffSkipTables string
+	diffOnlyDbs     string
+	diffSkipDbs     string
+	diffOnlyTables  string
+	diffSkipTables  string
 
 	snapshotOnlyDbs    string
 	snapshotSkipDbs    string
 	snapshotOnlyTables string
 	snapshotSkipTables string
-	verify          bool
-	verifyVersion   string
-	verbose         bool
+	snapshotLogDir     string
+	verify             bool
+	verifyVersion      string
+	verbose            bool
 )
 
 func init() {
@@ -73,6 +75,7 @@ func init() {
 	snapshotCmd.Flags().StringVar(&snapshotSkipTables, "skip-tables", "", "Comma-separated table names to skip")
 	snapshotCmd.Flags().BoolVar(&verify, "verify", false, "Verify exported schema in Docker container (requires Docker)")
 	snapshotCmd.Flags().StringVar(&verifyVersion, "verify-version", "latest", "ClickHouse version for verification (default: latest)")
+	snapshotCmd.Flags().StringVar(&snapshotLogDir, "log", "", "Directory to write timestamped migration log entries (diffs old --out vs new schema; requires Docker)")
 	_ = snapshotCmd.MarkFlagRequired("from")
 
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable informational output (errors are always shown)")
@@ -88,23 +91,19 @@ func isDSN(s string) bool {
 // resolveSource connects to a ClickHouse instance identified by source, which is either
 // a DSN (http://, clickhouse://, ...) or a path to a .sql file.
 // When source is a file, a temporary Docker container is started and the schema is loaded into it.
-// The caller must call the returned cleanup function when done.
-func resolveSource(ctx context.Context, source, role string) (*clickhouse.Client, func(), error) {
+// The caller must call ch.Close() when done — for file sources, that also terminates the container.
+func resolveSource(ctx context.Context, source, role string) (*clickhouse.Client, error) {
 	if isDSN(source) {
-		ch, err := clickhouse.Connect(ctx, source)
-		if err != nil {
-			return nil, nil, err
-		}
-		return ch, func() { ch.Close() }, nil
+		return clickhouse.Connect(ctx, source)
 	}
 
 	data, err := os.ReadFile(source)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read %s: %w", source, err)
+		return nil, fmt.Errorf("failed to read %s: %w", source, err)
 	}
 	stmts, err := models.ParseFile(string(data))
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", source, err)
+		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	name := fmt.Sprintf("chsync-%s-%s", role, time.Now().Format("20060102-150405"))
 	dm := docker.Manager{}
@@ -131,52 +130,69 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fromCh, fromCleanup, err := resolveSource(ctx, fromSource, "from")
+	fromCh, err := resolveSource(ctx, fromSource, "from")
 	if err != nil {
 		return fmt.Errorf("failed to connect to source: %w", err)
 	}
-	defer fromCleanup()
+	defer fromCh.Close()
 	infof("Connected to source\n")
 
-	toCh, toCleanup, err := resolveSource(ctx, toSource, "to")
+	toCh, err := resolveSource(ctx, toSource, "to")
 	if err != nil {
 		return fmt.Errorf("failed to connect to target: %w", err)
 	}
-	defer toCleanup()
+	defer toCh.Close()
 	infof("Connected to target\n")
 
-	// Load schemas
 	filter := clickhouse.Filter{
 		OnlyDbs:    parseList(diffOnlyDbs),
 		SkipDbs:    parseList(diffSkipDbs),
 		OnlyTables: parseList(diffOnlyTables),
 		SkipTables: parseList(diffSkipTables),
 	}
+	output, err := generateMigrationSQL(ctx, fromCh, toCh, filter)
+	if err != nil {
+		return err
+	}
+
+	if output == "" {
+		fmt.Println("No differences found.")
+		return nil
+	}
+
+	if err := os.WriteFile(diffOutFile, []byte(output), 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	infof("Migration written to %s\n", diffOutFile)
+	return nil
+}
+
+// generateMigrationSQL loads the schemas from both clients, diffs them, and returns
+// the migration SQL. Returns an empty string when there are no differences.
+func generateMigrationSQL(ctx context.Context, fromCh, toCh *clickhouse.Client, filter clickhouse.Filter) (string, error) {
 	fromSchema, err := fromCh.LoadSchema(ctx, filter)
 	if err != nil {
-		return fmt.Errorf("failed to load source schema: %w", err)
+		return "", fmt.Errorf("failed to load source schema: %w", err)
 	}
 	infof("Loaded source schema\n")
 
 	toSchema, err := toCh.LoadSchema(ctx, filter)
 	if err != nil {
-		return fmt.Errorf("failed to load target schema: %w", err)
+		return "", fmt.Errorf("failed to load target schema: %w", err)
 	}
 	infof("Loaded target schema\n")
 
-	// Compare schemas
 	combined := models.NewCombinedSchema(*fromSchema, *toSchema)
 	infof("Compared schemas\n")
 
 	// Load type aliases from the source instance (used to normalise column type comparisons).
-	// Errors are non-fatal: if the query fails (e.g. older ClickHouse without the table),
-	// we simply proceed without alias resolution.
+	// Errors are non-fatal: older ClickHouse may not have the table.
 	typeAliases, err := fromCh.LoadTypeAliases(ctx)
 	if err != nil {
 		infof("Warning: could not load type aliases: %v\n", err)
 		typeAliases = nil
 	}
-	// Merge aliases from the target instance so both servers' alias vocabularies are covered.
 	if toAliases, err := toCh.LoadTypeAliases(ctx); err == nil {
 		for k, v := range toAliases {
 			if _, exists := typeAliases[k]; !exists {
@@ -185,7 +201,6 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Generate sync plan
 	generator := models.NewSyncPlanGenerator(models.GeneratorConfig{
 		TableRenameSimilarityThreshold:  0.80,
 		ColumnRenameSimilarityThreshold: 0.70,
@@ -194,7 +209,6 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	plan := generator.Generate(combined)
 	infof("Generated sync plan\n")
 
-	// Collect all SQL statements from the first strategy
 	var output string
 	if len(plan.Strategies) > 0 {
 		for _, op := range plan.Strategies[0].Operations {
@@ -207,20 +221,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		output = sqlfmt.Format(output)
 	}
 
-	if output == "" {
-		fmt.Println("No differences found.")
-		return nil
-	}
-
-	if !strings.HasSuffix(output, "\n") {
+	if output != "" && !strings.HasSuffix(output, "\n") {
 		output += "\n"
 	}
-	if err := os.WriteFile(diffOutFile, []byte(output), 0644); err != nil {
-		return fmt.Errorf("failed to write output file: %w", err)
-	}
-
-	infof("Migration written to %s\n", diffOutFile)
-	return nil
+	return output, nil
 }
 
 func runSnapshot(cmd *cobra.Command, args []string) error {
@@ -228,7 +232,6 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 
 	infof("Exporting schema:\n  From: %s\n  Output: %s\n", redactDSN(fromSource), snapshotOutFile)
 
-	// Connect to ClickHouse
 	ch, err := clickhouse.Connect(ctx, fromSource)
 	if err != nil {
 		return fmt.Errorf("failed to connect to ClickHouse: %w", err)
@@ -236,7 +239,6 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	defer ch.Close()
 	infof("Connected to ClickHouse\n")
 
-	// Extract schema as SQL
 	stmts, err := ch.ExportSQL(ctx, clickhouse.Filter{
 		OnlyDbs:    parseList(snapshotOnlyDbs),
 		SkipDbs:    parseList(snapshotSkipDbs),
@@ -248,7 +250,6 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	}
 	infof("Exported schema as SQL\n")
 
-	// Verify with Docker if requested
 	if verify {
 		dm := docker.Manager{}
 		installed, running := dm.IsDockerAvailable()
@@ -270,18 +271,110 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 		infof("Verification passed\n")
 	}
 
-	// Write to output file
-	s := stmts.ToStatements()
-	s = sqlfmt.Format(s)
-	if !strings.HasSuffix(s, "\n") {
-		s += "\n"
+	newSQL := sqlfmt.Format(stmts.ToStatements())
+	if !strings.HasSuffix(newSQL, "\n") {
+		newSQL += "\n"
 	}
-	if err := os.WriteFile(snapshotOutFile, []byte(s), 0644); err != nil {
+
+	// Write a changelog entry before overwriting --out, so the old snapshot
+	// is preserved on failure and we can diff old vs new.
+	if snapshotLogDir != "" {
+		if err := writeChangelog(ctx, stmts, newSQL); err != nil {
+			return fmt.Errorf("failed to write changelog: %w", err)
+		}
+	}
+
+	if err := atomicWriteFile(snapshotOutFile, []byte(newSQL)); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
 	infof("Schema exported successfully to %s\n", snapshotOutFile)
 
+	return nil
+}
+
+// writeChangelog produces a timestamped migration log entry in snapshotLogDir.
+// On the first run (no existing snapshot at snapshotOutFile) the full new schema
+// is written as the initial entry. Otherwise both old and new snapshots are
+// loaded into temporary Docker containers and diffed; the resulting migration
+// SQL is written. If there are no differences, no file is written.
+func writeChangelog(ctx context.Context, newStmts *models.SQLStatements, newSQL string) error {
+	if err := os.MkdirAll(snapshotLogDir, 0755); err != nil {
+		return fmt.Errorf("create log dir: %w", err)
+	}
+
+	timestamp := time.Now().Format("2006-01-02T150405")
+	logFile := filepath.Join(snapshotLogDir, timestamp+".sql")
+
+	oldData, err := os.ReadFile(snapshotOutFile)
+	if os.IsNotExist(err) {
+		infof("No existing snapshot at %s; writing initial changelog entry to %s\n", snapshotOutFile, logFile)
+		return os.WriteFile(logFile, []byte(newSQL), 0644)
+	}
+	if err != nil {
+		return fmt.Errorf("read existing snapshot: %w", err)
+	}
+
+	dm := docker.Manager{}
+	installed, running := dm.IsDockerAvailable()
+	if !installed {
+		return fmt.Errorf("Docker is not installed or not in PATH.\n\n" +
+			"The --log flag requires Docker to diff old and new snapshots.\n" +
+			"Install Docker from: https://docs.docker.com/get-docker/")
+	}
+	if !running {
+		return fmt.Errorf("Docker is installed but not running.\n\n" +
+			"Please start Docker and try again.")
+	}
+
+	oldStmts, err := models.ParseFile(string(oldData))
+	if err != nil {
+		return fmt.Errorf("parse existing snapshot %s: %w", snapshotOutFile, err)
+	}
+
+	stamp := time.Now().Format("20060102-150405")
+	infof("Loading old snapshot in Docker (version: %s)\n", verifyVersion)
+	oldCh, err := dm.StartWithSchema(ctx, oldStmts, verifyVersion, "chsync-log-old-"+stamp)
+	if err != nil {
+		return fmt.Errorf("load old snapshot in Docker: %w", err)
+	}
+	defer oldCh.Close()
+
+	infof("Loading new snapshot in Docker (version: %s)\n", verifyVersion)
+	newCh, err := dm.StartWithSchema(ctx, newStmts, verifyVersion, "chsync-log-new-"+stamp)
+	if err != nil {
+		return fmt.Errorf("load new snapshot in Docker: %w", err)
+	}
+	defer newCh.Close()
+
+	output, err := generateMigrationSQL(ctx, oldCh, newCh, clickhouse.Filter{})
+	if err != nil {
+		return err
+	}
+
+	if output == "" {
+		infof("No schema differences; skipping changelog entry\n")
+		return nil
+	}
+
+	if err := os.WriteFile(logFile, []byte(output), 0644); err != nil {
+		return fmt.Errorf("write changelog: %w", err)
+	}
+	infof("Changelog written to %s\n", logFile)
+	return nil
+}
+
+// atomicWriteFile writes data to path via a sibling .tmp file then renames it
+// into place, so the destination is either the old contents or the new — never partial.
+func atomicWriteFile(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 	return nil
 }
 

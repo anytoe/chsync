@@ -37,8 +37,9 @@ func (dm *Manager) IsDockerAvailable() (installed bool, running bool) {
 }
 
 // StartWithSchema spins up a ClickHouse container, loads the given statements, and returns
-// a connected client. The caller must call the returned cleanup function when done.
-func (dm *Manager) StartWithSchema(ctx context.Context, stmts *models.SQLStatements, version, name string) (*clickhouse.Client, func(), error) {
+// a connected client. The caller must call ch.Close() when done — that closes the connection
+// and terminates the container.
+func (dm *Manager) StartWithSchema(ctx context.Context, stmts *models.SQLStatements, version, name string) (*clickhouse.Client, error) {
 	if version == "" {
 		version = "latest"
 	}
@@ -61,65 +62,58 @@ func (dm *Manager) StartWithSchema(ctx context.Context, stmts *models.SQLStateme
 		Started:          true,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start container: %w", err)
+		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
 	stopContainer := func() {
 		if err := container.Terminate(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to terminate container %q: %v\n", name, err)
+			_, _ = fmt.Fprintf(os.Stderr, "Warning: failed to terminate container %q: %v\n", name, err)
 		}
 	}
 
 	host, err := container.Host(ctx)
 	if err != nil {
 		stopContainer()
-		return nil, nil, fmt.Errorf("failed to get container host: %w", err)
+		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
 	port, err := container.MappedPort(ctx, containerHTTPPort)
 	if err != nil {
 		stopContainer()
-		return nil, nil, fmt.Errorf("failed to get mapped port: %w", err)
+		return nil, fmt.Errorf("failed to get mapped port: %w", err)
 	}
 
-	// Connect to ClickHouse (http:// for local container without TLS)
 	dsn := fmt.Sprintf("http://%s:%s@%s:%s/%s", containerUser, containerPassword, host, port.Port(), containerUser)
 
 	ch, err := clickhouse.Connect(ctx, dsn)
 	if err != nil {
 		stopContainer()
-		return nil, nil, fmt.Errorf("failed to connect to container: %w", err)
+		return nil, fmt.Errorf("failed to connect to container: %w", err)
 	}
+	ch.SetOnClose(stopContainer)
 
 	for i, stmt := range stmts.StatementsCleaned {
 		stmt = trimStatement(stmt)
 		if stmt == "" {
 			continue
 		}
-		_, err = ch.Query(ctx, stmt)
-		if err != nil {
-			ch.Close()
-			stopContainer()
-			return nil, nil, fmt.Errorf("failed to execute statement %d: %w\nStatement: %s", i+1, err, stmt)
+		if _, err := ch.Query(ctx, stmt); err != nil {
+			_ = ch.Close()
+			return nil, fmt.Errorf("failed to execute statement %d: %w\nStatement: %s", i+1, err, stmt)
 		}
 	}
 
-	cleanup := func() {
-		ch.Close()
-		stopContainer()
-	}
-	return ch, cleanup, nil
+	return ch, nil
 }
 
 // VerifyWithDocker spins up a temporary ClickHouse container and verifies the SQL statements.
 func (dm *Manager) VerifyWithDocker(ctx context.Context, stmts *models.SQLStatements, version string) error {
 	name := fmt.Sprintf("chsync-%s", time.Now().Format("20060102-150405"))
-	_, cleanup, err := dm.StartWithSchema(ctx, stmts, version, name)
+	ch, err := dm.StartWithSchema(ctx, stmts, version, name)
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-	return nil
+	return ch.Close()
 }
 
 // splitLines splits text into lines

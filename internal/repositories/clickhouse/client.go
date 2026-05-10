@@ -11,7 +11,15 @@ import (
 
 // Client wraps a ClickHouse connection
 type Client struct {
-	conn driver.Conn
+	conn    driver.Conn
+	onClose func()
+}
+
+// SetOnClose registers a hook invoked after the connection is closed.
+// Used by the docker manager to terminate the underlying container when
+// the client owns its lifecycle.
+func (c *Client) SetOnClose(fn func()) {
+	c.onClose = fn
 }
 
 // Connect establishes a connection to ClickHouse
@@ -40,15 +48,20 @@ func Connect(ctx context.Context, dsn string) (*Client, error) {
 	}
 
 	if err := conn.Ping(ctx); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to ping: %w", err)
 	}
 
 	return &Client{conn: conn}, nil
 }
 
-// Close closes the connection
+// Close closes the connection and runs any registered onClose hook.
 func (c *Client) Close() error {
-	return c.conn.Close()
+	err := c.conn.Close()
+	if c.onClose != nil {
+		c.onClose()
+	}
+	return err
 }
 
 // Query executes a query and returns rows

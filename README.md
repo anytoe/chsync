@@ -19,7 +19,7 @@ The snapshot file also doubles as always-up-to-date schema context for coding as
 
 ## Requirements
 
-- [Docker](https://docs.docker.com/get-docker/) — required when using `.sql` files as input for `diff`, or when using `snapshot --verify`
+- [Docker](https://docs.docker.com/get-docker/) — required when using `.sql` files as input for `diff`, or when using `snapshot --verify` or `snapshot --log`
 
 ## Installation
 
@@ -51,6 +51,15 @@ Use `--verify` to replay the snapshot in a temporary Docker container and confir
 chsync snapshot --from "clickhouse://user:pass@host:9000" --out schema.sql --verify
 ```
 
+Use `--log <dir>` to record schema changes over time. Each run diffs the existing `--out` against the new schema (loading both into temporary Docker containers) and writes a timestamped migration to `<dir>/<YYYY-MM-DDTHHMMSS>.sql`. The old snapshot is preserved if anything fails. When the diff is empty, no log file is written. On the first run (no existing `--out`), the full schema is written as the initial entry.
+
+```sh
+chsync snapshot \
+  --from "clickhouse://user:pass@host:9000" \
+  --out  schema.sql \
+  --log  ./changelog
+```
+
 Flags:
 
 | Flag | Default | Description |
@@ -62,7 +71,8 @@ Flags:
 | `--only-tables` | | Comma-separated tables to include |
 | `--skip-tables` | | Comma-separated tables to skip |
 | `--verify` | false | Replay schema in Docker to validate |
-| `--verify-version` | `latest` | ClickHouse image version for verification |
+| `--verify-version` | `latest` | ClickHouse image version for verification (also used for `--log`) |
+| `--log` | | Directory to write timestamped migration log entries (requires Docker) |
 
 ### diff
 
@@ -87,6 +97,8 @@ Flags:
 | `--skip-tables` | | Comma-separated tables to skip |
 
 ## Examples
+
+For a runnable end-to-end walkthrough (Dockerized "production" ClickHouse + snapshot / diff / `--log` demo), see [`examples/`](./examples/).
 
 Snapshot production, diff against the repo snapshot, review, then apply:
 
