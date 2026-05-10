@@ -1,0 +1,14 @@
+services:
+  production-clickhouse:
+    image: clickhouse/clickhouse-server:25.10
+    container_name: chsync-example-production-server
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: default_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./initial-schema.sql:/docker-entrypoint-initdb.d/01_initial.sql:ro

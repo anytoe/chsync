@@ -15,6 +15,7 @@
 # Output
 *.out
 *.sql
+!examples/initial-schema.sql
 
 # Go workspace file
 go.work
