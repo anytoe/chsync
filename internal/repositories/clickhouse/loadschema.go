@@ -71,6 +71,11 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 		return nil, fmt.Errorf("load functions: %w", err)
 	}
 
+	dictionaries, err := c.loadDictionaries(ctx, databases, f)
+	if err != nil {
+		return nil, fmt.Errorf("load dictionaries: %w", err)
+	}
+
 	// Assign columns to their tables
 	for key, cols := range columns {
 		if t, ok := tables[key]; ok {
@@ -92,8 +97,40 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 	}
 
 	schema.Functions = functions
+	schema.Dictionaries = dictionaries
 
 	return schema, nil
+}
+
+// loadDictionaries reads CREATE DICTIONARY statements verbatim from
+// system.tables (where engine = 'Dictionary') for the given databases.
+// The full create_table_query is kept; bodies are not parsed.
+func (c *Client) loadDictionaries(ctx context.Context, databases []string, f Filter) ([]models.Dictionary, error) {
+	if len(databases) == 0 {
+		return nil, nil
+	}
+	cond := fmt.Sprintf("database IN (%s) AND engine = 'Dictionary'", quoted(databases))
+	cond += tableFilterClauses(f, "name")
+
+	query := fmt.Sprintf(
+		"SELECT database, name, create_table_query FROM system.tables WHERE %s ORDER BY database, name",
+		cond,
+	)
+	rows, err := c.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query dictionaries: %w", err)
+	}
+	defer rows.Close()
+
+	var dicts []models.Dictionary
+	for rows.Next() {
+		var d models.Dictionary
+		if err := rows.Scan(&d.Database, &d.Name, &d.CreateQuery); err != nil {
+			return nil, fmt.Errorf("scan dictionary: %w", err)
+		}
+		dicts = append(dicts, d)
+	}
+	return dicts, rows.Err()
 }
 
 // loadFunctions loads all SQL user-defined functions.
@@ -152,7 +189,7 @@ func (c *Client) loadDatabases(ctx context.Context, f Filter) ([]string, error) 
 // loadTables loads all tables for the given databases in a single query.
 // Returns a map keyed by "database.table".
 func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (map[string]models.Table, error) {
-	cond := fmt.Sprintf("database IN (%s)", quoted(databases))
+	cond := fmt.Sprintf("database IN (%s) AND engine != 'Dictionary'", quoted(databases))
 	cond += tableFilterClauses(f, "name")
 
 	query := fmt.Sprintf(

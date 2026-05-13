@@ -535,6 +535,66 @@ func TestSyncPlanGenerator_FunctionOperations(t *testing.T) {
 	runTests(t, tests)
 }
 
+func TestSyncPlanGenerator_DictionaryOperations(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	dictV1 := "CREATE DICTIONARY db1.d (`id` UUID) PRIMARY KEY id SOURCE(CLICKHOUSE(QUERY 'SELECT id FROM db1.users')) LIFETIME(MIN 0 MAX 0) LAYOUT(COMPLEX_KEY_HASHED())"
+	dictV2 := "CREATE DICTIONARY db1.d (`id` UUID) PRIMARY KEY id SOURCE(CLICKHOUSE(QUERY 'SELECT id FROM db1.orders')) LIFETIME(MIN 0 MAX 0) LAYOUT(COMPLEX_KEY_HASHED())"
+
+	tests := []struct {
+		name           string
+		from           func() Schema
+		to             func() Schema
+		wantOperations []expectedOperation
+	}{
+		{
+			name: "dictionary added",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().addDictionary("db1", "d", dictV1).build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelDictionary, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{dictV1 + ";"}},
+			},
+		},
+		{
+			name: "dictionary removed",
+			from: func() Schema {
+				return baseSchema().addDictionary("db1", "d", dictV1).build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelDictionary, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP DICTIONARY IF EXISTS `db1`.`d`;"}},
+			},
+		},
+		{
+			name: "dictionary body changed",
+			from: func() Schema {
+				return baseSchema().addDictionary("db1", "d", dictV1).build()
+			},
+			to: func() Schema {
+				return baseSchema().addDictionary("db1", "d", dictV2).build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelDictionary, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP DICTIONARY IF EXISTS `db1`.`d`;"}},
+				{level: LevelDictionary, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{dictV2 + ";"}},
+			},
+		},
+		{
+			name: "dictionary unchanged",
+			from: func() Schema {
+				return baseSchema().addDictionary("db1", "d", dictV1).build()
+			},
+			to: func() Schema {
+				return baseSchema().addDictionary("db1", "d", dictV1).build()
+			},
+			wantOperations: []expectedOperation{},
+		},
+	}
+
+	runTests(t, tests)
+}
+
 func TestSyncPlanGenerator_MixedOperations(t *testing.T) {
 	tests := []struct {
 		name           string

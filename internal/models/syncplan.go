@@ -44,11 +44,12 @@ type Operation struct {
 type OperationLevel string
 
 const (
-	LevelDatabase OperationLevel = "database"
-	LevelTable    OperationLevel = "table"
-	LevelColumn   OperationLevel = "column"
-	LevelIndex    OperationLevel = "index"
-	LevelFunction OperationLevel = "function"
+	LevelDatabase   OperationLevel = "database"
+	LevelTable      OperationLevel = "table"
+	LevelColumn     OperationLevel = "column"
+	LevelIndex      OperationLevel = "index"
+	LevelFunction   OperationLevel = "function"
+	LevelDictionary OperationLevel = "dictionary"
 )
 
 // OperationAction identifies what action a schema operation performs.
@@ -125,6 +126,49 @@ func (g *SyncPlanGenerator) buildHybridStrategy(combined *CombinedSchema) Strate
 			// Database exists in both, process tables
 			ops := g.processTablesInDatabase(db)
 			operations = append(operations, ops...)
+		}
+	}
+
+	// Process dictionary-level operations. Dictionaries are emitted after table
+	// operations because CLICKHOUSE-source dictionaries reference tables that
+	// must exist first. Body changes drop+recreate — chsync does not parse the
+	// CREATE DICTIONARY body.
+	for _, d := range combined.Dictionaries {
+		qname := quoteIdent(d.Database) + "." + quoteIdent(d.Name)
+		switch d.Presence {
+		case Target:
+			operations = append(operations, Operation{
+				Level:       LevelDictionary,
+				Action:      ActionCreate,
+				CanLoseData: false,
+				Statements:  []string{d.Target.CreateQuery + ";"},
+				Explanation: "Create dictionary " + d.Name,
+			})
+		case Source:
+			operations = append(operations, Operation{
+				Level:       LevelDictionary,
+				Action:      ActionDrop,
+				CanLoseData: true,
+				Statements:  []string{"DROP DICTIONARY IF EXISTS " + qname + ";"},
+				Explanation: "Drop dictionary " + d.Name,
+			})
+		case Both:
+			if d.Source.CreateQuery != d.Target.CreateQuery {
+				operations = append(operations, Operation{
+					Level:       LevelDictionary,
+					Action:      ActionDrop,
+					CanLoseData: true,
+					Statements:  []string{"DROP DICTIONARY IF EXISTS " + qname + ";"},
+					Explanation: "Drop dictionary " + d.Name + " (body changed)",
+				})
+				operations = append(operations, Operation{
+					Level:       LevelDictionary,
+					Action:      ActionCreate,
+					CanLoseData: false,
+					Statements:  []string{d.Target.CreateQuery + ";"},
+					Explanation: "Create dictionary " + d.Name,
+				})
+			}
 		}
 	}
 
