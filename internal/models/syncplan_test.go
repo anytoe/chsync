@@ -751,6 +751,146 @@ func TestSyncPlanGenerator_TableSettings(t *testing.T) {
 	runTests(t, tests)
 }
 
+func TestSyncPlanGenerator_TableProjections(t *testing.T) {
+	tests := []struct {
+		name           string
+		from           func() Schema
+		to             func() Schema
+		wantOperations []expectedOperation
+	}{
+		{
+			name: "projection added on target",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT * ORDER BY name").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` ADD PROJECTION proj_by_name (SELECT * ORDER BY name);",
+				}},
+			},
+		},
+		{
+			name: "projection removed on target",
+			from: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT * ORDER BY name").
+					build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` DROP PROJECTION proj_by_name;",
+				}},
+			},
+		},
+		{
+			name: "projection body changed: drop + add",
+			from: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT * ORDER BY name").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT id, name ORDER BY name").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` DROP PROJECTION proj_by_name;",
+				}},
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` ADD PROJECTION proj_by_name (SELECT id, name ORDER BY name);",
+				}},
+			},
+		},
+		{
+			name: "multiple changes: added, removed, body changed (deterministic order)",
+			from: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_old", "SELECT * ORDER BY id").
+					setTableProjection("db1", "users", "proj_keep", "SELECT * ORDER BY name").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_keep", "SELECT id ORDER BY name").
+					setTableProjection("db1", "users", "proj_new", "SELECT * ORDER BY id").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` DROP PROJECTION proj_keep;",
+				}},
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` DROP PROJECTION proj_old;",
+				}},
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` ADD PROJECTION proj_keep (SELECT id ORDER BY name);",
+				}},
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` ADD PROJECTION proj_new (SELECT * ORDER BY id);",
+				}},
+			},
+		},
+		{
+			name: "identical projections emit no operations",
+			from: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT * ORDER BY name").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT * ORDER BY name").
+					build()
+			},
+			wantOperations: []expectedOperation{},
+		},
+		{
+			name: "new table with projection emits PROJECTION inline in CREATE TABLE",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addTable("db1", "events", "MergeTree", []string{"id"}, []Column{
+						{Name: "id", Type: "Int32"},
+						{Name: "user_id", Type: "Int32"},
+					}).
+					setTableProjection("db1", "events", "proj_by_user", "SELECT * ORDER BY user_id").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionCreate, statements: []string{
+					"CREATE TABLE `db1`.`events` (`id` Int32, `user_id` Int32, PROJECTION proj_by_user (SELECT * ORDER BY user_id)) ENGINE = MergeTree ORDER BY (id);",
+				}},
+			},
+		},
+		{
+			name: "engine change subsumes projection change (drop+recreate, no ALTER PROJECTION)",
+			from: func() Schema {
+				return baseSchema().
+					setTableProjection("db1", "users", "proj_by_name", "SELECT * ORDER BY name").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableEngine("db1", "users", "ReplacingMergeTree").
+					setTableProjection("db1", "users", "proj_by_id", "SELECT * ORDER BY id").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
+				{level: LevelTable, action: ActionCreate},
+			},
+		},
+	}
+
+	runTests(t, tests)
+}
+
 // sampleTypeAliases returns a representative subset of the alias map that
 // system.data_type_families produces. Used in unit tests instead of a live DB query.
 func sampleTypeAliases() map[string]string {

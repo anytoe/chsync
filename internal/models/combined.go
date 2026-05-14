@@ -66,6 +66,7 @@ type TableProperties struct {
 	PrimaryKey  []string
 	PartitionBy string
 	Settings    map[string]string
+	Projections map[string]string
 }
 
 // CombinedColumn represents a column that may exist in source, target, or both
@@ -299,6 +300,7 @@ func tableToProperties(t Table) *TableProperties {
 		PrimaryKey:  t.PrimaryKey,
 		PartitionBy: t.PartitionBy,
 		Settings:    t.Settings,
+		Projections: t.Projections,
 	}
 }
 
