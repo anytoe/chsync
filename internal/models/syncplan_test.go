@@ -638,6 +638,119 @@ func TestSyncPlanGenerator_MixedOperations(t *testing.T) {
 	runTests(t, tests)
 }
 
+func TestSyncPlanGenerator_TableSettings(t *testing.T) {
+	tests := []struct {
+		name           string
+		from           func() Schema
+		to             func() Schema
+		wantOperations []expectedOperation
+	}{
+		{
+			name: "setting added on target",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY SETTING index_granularity = 8192;",
+				}},
+			},
+		},
+		{
+			name: "setting removed on target",
+			from: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` RESET SETTING index_granularity;",
+				}},
+			},
+		},
+		{
+			name: "setting value changed",
+			from: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "16384").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY SETTING index_granularity = 16384;",
+				}},
+			},
+		},
+		{
+			name: "multiple changes: added, removed, and value changed",
+			from: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					setTableSetting("db1", "users", "ttl_only_drop_parts", "0").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "16384").
+					setTableSetting("db1", "users", "allow_nullable_key", "1").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY SETTING allow_nullable_key = 1, index_granularity = 16384;",
+				}},
+				{level: LevelTable, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` RESET SETTING ttl_only_drop_parts;",
+				}},
+			},
+		},
+		{
+			name: "settings identical on both sides emit no operations",
+			from: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					build()
+			},
+			wantOperations: []expectedOperation{},
+		},
+		{
+			name: "engine change subsumes settings change (drop+recreate, no ALTER SETTING)",
+			from: func() Schema {
+				return baseSchema().
+					setTableSetting("db1", "users", "index_granularity", "8192").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableEngine("db1", "users", "ReplacingMergeTree").
+					setTableSetting("db1", "users", "index_granularity", "16384").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
+				{level: LevelTable, action: ActionCreate},
+			},
+		},
+	}
+
+	runTests(t, tests)
+}
+
 // sampleTypeAliases returns a representative subset of the alias map that
 // system.data_type_families produces. Used in unit tests instead of a live DB query.
 func sampleTypeAliases() map[string]string {
