@@ -254,6 +254,31 @@ func (b *schemaBuilder) setTablePrimaryKey(dbName, tableName string, primaryKey 
 	return b
 }
 
+// setTableSetting sets a single SETTINGS key on a table. Passing an empty
+// value deletes the key (so tests can model "setting removed on target").
+func (b *schemaBuilder) setTableSetting(dbName, tableName, key, value string) *schemaBuilder {
+	for i := range b.schema.Databases {
+		if b.schema.Databases[i].Name != dbName {
+			continue
+		}
+		for j := range b.schema.Databases[i].Tables {
+			if b.schema.Databases[i].Tables[j].Name != tableName {
+				continue
+			}
+			if b.schema.Databases[i].Tables[j].Settings == nil {
+				b.schema.Databases[i].Tables[j].Settings = make(map[string]string)
+			}
+			if value == "" {
+				delete(b.schema.Databases[i].Tables[j].Settings, key)
+			} else {
+				b.schema.Databases[i].Tables[j].Settings[key] = value
+			}
+			return b
+		}
+	}
+	return b
+}
+
 // setTableOrderBy changes a table's ORDER BY clause.
 func (b *schemaBuilder) setTableOrderBy(dbName, tableName string, orderBy []string) *schemaBuilder {
 	for i := range b.schema.Databases {

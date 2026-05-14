@@ -255,7 +255,7 @@ sequenceDiagram
 | Projections | no |
 | Constraints | no |
 | Indexes | no |
-| Table settings | no |
+| Table settings | yes (ALTER MODIFY/RESET SETTING) |
 | Views | no |
 | Materialized views | no |
 | Dictionaries | no |

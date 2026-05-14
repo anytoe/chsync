@@ -193,7 +193,7 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 	cond += tableFilterClauses(f, "name")
 
 	query := fmt.Sprintf(
-		"SELECT database, name, engine, sorting_key, primary_key, partition_key FROM system.tables WHERE %s ORDER BY database, name",
+		"SELECT database, name, engine, engine_full, sorting_key, primary_key, partition_key FROM system.tables WHERE %s ORDER BY database, name",
 		cond,
 	)
 
@@ -205,8 +205,8 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 
 	tables := make(map[string]models.Table)
 	for rows.Next() {
-		var dbName, name, engine, sortingKey, primaryKey, partitionKey string
-		if err := rows.Scan(&dbName, &name, &engine, &sortingKey, &primaryKey, &partitionKey); err != nil {
+		var dbName, name, engine, engineFull, sortingKey, primaryKey, partitionKey string
+		if err := rows.Scan(&dbName, &name, &engine, &engineFull, &sortingKey, &primaryKey, &partitionKey); err != nil {
 			return nil, fmt.Errorf("scan table: %w", err)
 		}
 
@@ -214,6 +214,7 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 			Name:        name,
 			Engine:      models.NormalizeEngine(engine),
 			PartitionBy: partitionKey,
+			Settings:    parseSettings(engineFull),
 		}
 		if sortingKey != "" {
 			table.OrderBy = strings.Split(sortingKey, ", ")
@@ -225,6 +226,60 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 		tables[dbName+"."+name] = table
 	}
 	return tables, rows.Err()
+}
+
+// parseSettings extracts the SETTINGS clause from a system.tables engine_full
+// string and returns it as a key→value map. ClickHouse formats engine_full as
+// "<Engine>(...) [ORDER BY ...] [PARTITION BY ...] [SETTINGS k1 = v1, k2 = v2, ...]".
+// Returns nil if there is no SETTINGS clause.
+//
+// Values are taken verbatim (e.g. "8192", "'foo'") — not unquoted — so they
+// round-trip into the CREATE TABLE SETTINGS clause unchanged.
+func parseSettings(engineFull string) map[string]string {
+	const marker = " SETTINGS "
+	idx := strings.Index(engineFull, marker)
+	if idx == -1 {
+		return nil
+	}
+	rest := engineFull[idx+len(marker):]
+
+	result := make(map[string]string)
+	// Split on commas that sit outside single-quoted string values.
+	var current strings.Builder
+	inQuote := false
+	flush := func() {
+		pair := strings.TrimSpace(current.String())
+		current.Reset()
+		if pair == "" {
+			return
+		}
+		eq := strings.Index(pair, "=")
+		if eq < 0 {
+			return
+		}
+		key := strings.TrimSpace(pair[:eq])
+		val := strings.TrimSpace(pair[eq+1:])
+		if key != "" {
+			result[key] = val
+		}
+	}
+	for i := 0; i < len(rest); i++ {
+		ch := rest[i]
+		if ch == '\'' {
+			inQuote = !inQuote
+		}
+		if ch == ',' && !inQuote {
+			flush()
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	flush()
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // loadColumns loads all columns for the given databases in a single query.

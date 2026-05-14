@@ -324,6 +324,14 @@ func (g *SyncPlanGenerator) processTableChanges(dbName string, table CombinedTab
 			operations = append(operations, g.createTableOperation(dbName, table))
 			return operations
 		}
+
+		// Settings differences are emitted as ALTER MODIFY/RESET SETTING.
+		// Immutable settings (e.g. index_granularity) will be rejected by
+		// ClickHouse at apply time — that error message is clearer than
+		// anything chsync could synthesize, so we don't try to guess.
+		if ops := g.settingsOperations(dbName, table); len(ops) > 0 {
+			operations = append(operations, ops...)
+		}
 	}
 
 	// Process column-level changes
@@ -331,6 +339,58 @@ func (g *SyncPlanGenerator) processTableChanges(dbName string, table CombinedTab
 	operations = append(operations, ops...)
 
 	return operations
+}
+
+// settingsOperations diffs source vs target SETTINGS and produces ALTER
+// statements: one MODIFY SETTING for added/changed keys, one RESET SETTING
+// for keys present on source but absent on target. Keys are emitted in
+// sorted order for deterministic output.
+func (g *SyncPlanGenerator) settingsOperations(dbName string, table CombinedTable) []Operation {
+	src := table.Source.Settings
+	tgt := table.Target.Settings
+
+	var modified []string
+	for k, v := range tgt {
+		if srcVal, ok := src[k]; !ok || srcVal != v {
+			modified = append(modified, k)
+		}
+	}
+	sort.Strings(modified)
+
+	var reset []string
+	for k := range src {
+		if _, ok := tgt[k]; !ok {
+			reset = append(reset, k)
+		}
+	}
+	sort.Strings(reset)
+
+	var ops []Operation
+	qname := quoteIdent(dbName) + "." + quoteIdent(table.Name)
+
+	if len(modified) > 0 {
+		pairs := make([]string, len(modified))
+		for i, k := range modified {
+			pairs[i] = k + " = " + tgt[k]
+		}
+		ops = append(ops, Operation{
+			Level:       LevelTable,
+			Action:      ActionAlter,
+			CanLoseData: false,
+			Statements:  []string{"ALTER TABLE " + qname + " MODIFY SETTING " + strings.Join(pairs, ", ") + ";"},
+			Explanation: "Modify settings on " + table.Name,
+		})
+	}
+	if len(reset) > 0 {
+		ops = append(ops, Operation{
+			Level:       LevelTable,
+			Action:      ActionAlter,
+			CanLoseData: false,
+			Statements:  []string{"ALTER TABLE " + qname + " RESET SETTING " + strings.Join(reset, ", ") + ";"},
+			Explanation: "Reset settings on " + table.Name,
+		})
+	}
+	return ops
 }
 
 func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedTable) []Operation {
