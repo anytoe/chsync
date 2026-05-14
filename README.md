@@ -252,7 +252,7 @@ sequenceDiagram
 | Table comment | no |
 | PARTITION BY change | no |
 | SAMPLE BY change | no |
-| Projections | no |
+| Projections | yes (ALTER ADD/DROP PROJECTION; inline on new tables) |
 | Constraints | no |
 | Indexes | no |
 | Table settings | yes (ALTER MODIFY/RESET SETTING) |

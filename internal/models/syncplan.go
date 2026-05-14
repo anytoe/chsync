@@ -332,6 +332,13 @@ func (g *SyncPlanGenerator) processTableChanges(dbName string, table CombinedTab
 		if ops := g.settingsOperations(dbName, table); len(ops) > 0 {
 			operations = append(operations, ops...)
 		}
+
+		// Projection differences: ADD for target-only, DROP for source-only,
+		// DROP+ADD when bodies differ. Operators run MATERIALIZE PROJECTION
+		// themselves when they want historical data backfilled.
+		if ops := g.projectionOperations(dbName, table); len(ops) > 0 {
+			operations = append(operations, ops...)
+		}
 	}
 
 	// Process column-level changes
@@ -388,6 +395,57 @@ func (g *SyncPlanGenerator) settingsOperations(dbName string, table CombinedTabl
 			CanLoseData: false,
 			Statements:  []string{"ALTER TABLE " + qname + " RESET SETTING " + strings.Join(reset, ", ") + ";"},
 			Explanation: "Reset settings on " + table.Name,
+		})
+	}
+	return ops
+}
+
+// projectionOperations diffs source vs target table projections and emits
+// ALTER TABLE ADD/DROP PROJECTION statements. A projection whose body has
+// changed is dropped and re-added (ClickHouse has no MODIFY PROJECTION).
+// Operations are produced in deterministic order: drops first (sorted), then
+// adds (sorted).
+func (g *SyncPlanGenerator) projectionOperations(dbName string, table CombinedTable) []Operation {
+	src := table.Source.Projections
+	tgt := table.Target.Projections
+
+	var toDrop []string
+	var toAdd []string
+	for name, body := range tgt {
+		if srcBody, ok := src[name]; !ok {
+			toAdd = append(toAdd, name)
+		} else if srcBody != body {
+			toDrop = append(toDrop, name)
+			toAdd = append(toAdd, name)
+		}
+	}
+	for name := range src {
+		if _, ok := tgt[name]; !ok {
+			toDrop = append(toDrop, name)
+		}
+	}
+	sort.Strings(toDrop)
+	sort.Strings(toAdd)
+
+	var ops []Operation
+	qname := quoteIdent(dbName) + "." + quoteIdent(table.Name)
+
+	for _, name := range toDrop {
+		ops = append(ops, Operation{
+			Level:       LevelTable,
+			Action:      ActionAlter,
+			CanLoseData: false,
+			Statements:  []string{"ALTER TABLE " + qname + " DROP PROJECTION " + name + ";"},
+			Explanation: "Drop projection " + name + " on " + table.Name,
+		})
+	}
+	for _, name := range toAdd {
+		ops = append(ops, Operation{
+			Level:       LevelTable,
+			Action:      ActionAlter,
+			CanLoseData: false,
+			Statements:  []string{"ALTER TABLE " + qname + " ADD PROJECTION " + name + " (" + tgt[name] + ");"},
+			Explanation: "Add projection " + name + " on " + table.Name,
 		})
 	}
 	return ops
@@ -631,6 +689,18 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 	}
 
 	t := table.Target
+	// Append PROJECTION definitions inside the CREATE TABLE parens, in
+	// sorted order for deterministic output.
+	if len(t.Projections) > 0 {
+		names := make([]string, 0, len(t.Projections))
+		for n := range t.Projections {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			colDefs = append(colDefs, "PROJECTION "+n+" ("+t.Projections[n]+")")
+		}
+	}
 	sql := fmt.Sprintf("CREATE TABLE %s.%s (%s) ENGINE = %s", quoteIdent(dbName), quoteIdent(table.Name), strings.Join(colDefs, ", "), t.Engine)
 	if len(t.OrderBy) > 0 {
 		sql += " ORDER BY (" + strings.Join(t.OrderBy, ", ") + ")"

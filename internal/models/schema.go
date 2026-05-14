@@ -36,6 +36,11 @@ type Database struct {
 
 // Table represents a ClickHouse table with its columns
 // Includes all table types: Table, View, MaterializedView, Dictionary, etc.
+//
+// Projections are name → body, where body is the SELECT clause inside
+// the ALTER TABLE ADD PROJECTION name (...) parens — e.g.
+// "SELECT * ORDER BY wio_root_id_from". ClickHouse exposes this via
+// system.projections.query.
 type Table struct {
 	Name        string
 	Engine      string
@@ -44,6 +49,7 @@ type Table struct {
 	PrimaryKey  []string
 	PartitionBy string
 	Settings    map[string]string
+	Projections map[string]string
 }
 
 // NormalizeEngine strips cloud-specific prefixes from engine names.

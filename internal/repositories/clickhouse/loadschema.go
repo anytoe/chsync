@@ -66,6 +66,11 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 		return nil, fmt.Errorf("load columns: %w", err)
 	}
 
+	projections, err := c.loadProjections(ctx, databases, f)
+	if err != nil {
+		return nil, fmt.Errorf("load projections: %w", err)
+	}
+
 	functions, err := c.loadFunctions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load functions: %w", err)
@@ -76,10 +81,16 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 		return nil, fmt.Errorf("load dictionaries: %w", err)
 	}
 
-	// Assign columns to their tables
+	// Assign columns and projections to their tables
 	for key, cols := range columns {
 		if t, ok := tables[key]; ok {
 			t.Columns = cols
+			tables[key] = t
+		}
+	}
+	for key, projs := range projections {
+		if t, ok := tables[key]; ok {
+			t.Projections = projs
 			tables[key] = t
 		}
 	}
@@ -280,6 +291,41 @@ func parseSettings(engineFull string) map[string]string {
 		return nil
 	}
 	return result
+}
+
+// loadProjections loads all table projections for the given databases.
+// Returns a map keyed by "database.table" → (projection_name → body).
+// The body is the SELECT clause as ClickHouse stores it in system.projections.query.
+func (c *Client) loadProjections(ctx context.Context, databases []string, f Filter) (map[string]map[string]string, error) {
+	if len(databases) == 0 {
+		return nil, nil
+	}
+	cond := fmt.Sprintf("database IN (%s)", quoted(databases))
+	cond += tableFilterClauses(f, "table")
+
+	query := fmt.Sprintf(
+		"SELECT database, table, name, query FROM system.projections WHERE %s ORDER BY database, table, name",
+		cond,
+	)
+	rows, err := c.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query projections: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]map[string]string)
+	for rows.Next() {
+		var dbName, tableName, name, body string
+		if err := rows.Scan(&dbName, &tableName, &name, &body); err != nil {
+			return nil, fmt.Errorf("scan projection: %w", err)
+		}
+		key := dbName + "." + tableName
+		if result[key] == nil {
+			result[key] = make(map[string]string)
+		}
+		result[key][name] = body
+	}
+	return result, rows.Err()
 }
 
 // loadColumns loads all columns for the given databases in a single query.

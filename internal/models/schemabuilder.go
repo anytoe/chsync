@@ -70,10 +70,14 @@ func (b *schemaBuilder) clone() *schemaBuilder {
 				PrimaryKey:  append([]string{}, tbl.PrimaryKey...),
 				PartitionBy: tbl.PartitionBy,
 				Settings:    make(map[string]string),
+				Projections: make(map[string]string),
 				Columns:     make([]Column, len(tbl.Columns)),
 			}
 			for k, v := range tbl.Settings {
 				cloned.schema.Databases[i].Tables[j].Settings[k] = v
+			}
+			for k, v := range tbl.Projections {
+				cloned.schema.Databases[i].Tables[j].Projections[k] = v
 			}
 			for k, col := range tbl.Columns {
 				cloned.schema.Databases[i].Tables[j].Columns[k] = Column{
@@ -192,11 +196,12 @@ func (b *schemaBuilder) addTable(dbName, tableName, engine string, orderBy []str
 			b.schema.Databases[i].Tables = append(
 				b.schema.Databases[i].Tables,
 				Table{
-					Name:     tableName,
-					Engine:   engine,
-					OrderBy:  orderBy,
-					Columns:  columns,
-					Settings: make(map[string]string),
+					Name:        tableName,
+					Engine:      engine,
+					OrderBy:     orderBy,
+					Columns:     columns,
+					Settings:    make(map[string]string),
+					Projections: make(map[string]string),
 				},
 			)
 			return b
@@ -272,6 +277,33 @@ func (b *schemaBuilder) setTableSetting(dbName, tableName, key, value string) *s
 				delete(b.schema.Databases[i].Tables[j].Settings, key)
 			} else {
 				b.schema.Databases[i].Tables[j].Settings[key] = value
+			}
+			return b
+		}
+	}
+	return b
+}
+
+// setTableProjection sets (or replaces) a projection by name on a table.
+// Passing an empty body deletes the projection (so tests can model "projection
+// removed on target"). The body is the SELECT clause that goes inside the
+// projection parens, e.g. "SELECT * ORDER BY x".
+func (b *schemaBuilder) setTableProjection(dbName, tableName, name, body string) *schemaBuilder {
+	for i := range b.schema.Databases {
+		if b.schema.Databases[i].Name != dbName {
+			continue
+		}
+		for j := range b.schema.Databases[i].Tables {
+			if b.schema.Databases[i].Tables[j].Name != tableName {
+				continue
+			}
+			if b.schema.Databases[i].Tables[j].Projections == nil {
+				b.schema.Databases[i].Tables[j].Projections = make(map[string]string)
+			}
+			if body == "" {
+				delete(b.schema.Databases[i].Tables[j].Projections, name)
+			} else {
+				b.schema.Databases[i].Tables[j].Projections[name] = body
 			}
 			return b
 		}
