@@ -11,8 +11,23 @@ const (
 
 // CombinedSchema represents a merged view of two schemas
 type CombinedSchema struct {
-	Databases []CombinedDatabase
-	Functions []CombinedFunction
+	Databases    []CombinedDatabase
+	Functions    []CombinedFunction
+	Dictionaries []CombinedDictionary
+}
+
+// CombinedDictionary represents a dictionary that may exist in source, target, or both
+type CombinedDictionary struct {
+	Database string
+	Name     string
+	Presence Presence
+	Source   *DictionaryProperties
+	Target   *DictionaryProperties
+}
+
+// DictionaryProperties contains properties of a dictionary
+type DictionaryProperties struct {
+	CreateQuery string
 }
 
 // CombinedFunction represents a SQL UDF that may exist in source, target, or both
@@ -120,8 +135,49 @@ func NewCombinedSchema(from, to Schema) *CombinedSchema {
 	}
 
 	cs.Functions = compareFunctions(from.Functions, to.Functions)
+	cs.Dictionaries = compareDictionaries(from.Dictionaries, to.Dictionaries)
 
 	return cs
+}
+
+func compareDictionaries(fromDicts, toDicts []Dictionary) []CombinedDictionary {
+	key := func(d Dictionary) string { return d.Database + "." + d.Name }
+
+	fromMap := make(map[string]Dictionary)
+	for _, d := range fromDicts {
+		fromMap[key(d)] = d
+	}
+
+	inTo := make(map[string]bool)
+	var result []CombinedDictionary
+
+	for _, toDict := range toDicts {
+		k := key(toDict)
+		inTo[k] = true
+		cd := CombinedDictionary{Database: toDict.Database, Name: toDict.Name}
+		if fromDict, inFrom := fromMap[k]; inFrom {
+			cd.Presence = Both
+			cd.Source = &DictionaryProperties{CreateQuery: fromDict.CreateQuery}
+			cd.Target = &DictionaryProperties{CreateQuery: toDict.CreateQuery}
+		} else {
+			cd.Presence = Target
+			cd.Target = &DictionaryProperties{CreateQuery: toDict.CreateQuery}
+		}
+		result = append(result, cd)
+	}
+
+	for _, fromDict := range fromDicts {
+		if !inTo[key(fromDict)] {
+			result = append(result, CombinedDictionary{
+				Database: fromDict.Database,
+				Name:     fromDict.Name,
+				Presence: Source,
+				Source:   &DictionaryProperties{CreateQuery: fromDict.CreateQuery},
+			})
+		}
+	}
+
+	return result
 }
 
 func compareFunctions(fromFuncs, toFuncs []Function) []CombinedFunction {

@@ -27,3 +27,6 @@ go.work
 *.swp
 *.swo
 *~
+
+# Local planning notes (not for upstream)
+plans/

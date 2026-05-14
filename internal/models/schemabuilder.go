@@ -52,8 +52,9 @@ func (b *schemaBuilder) build() Schema {
 func (b *schemaBuilder) clone() *schemaBuilder {
 	cloned := &schemaBuilder{
 		schema: Schema{
-			Databases: make([]Database, len(b.schema.Databases)),
-			Functions: append([]Function{}, b.schema.Functions...),
+			Databases:    make([]Database, len(b.schema.Databases)),
+			Functions:    append([]Function{}, b.schema.Functions...),
+			Dictionaries: append([]Dictionary{}, b.schema.Dictionaries...),
 		},
 	}
 	for i, db := range b.schema.Databases {
@@ -289,6 +290,27 @@ func (b *schemaBuilder) removeFunction(name string) *schemaBuilder {
 	for i, fn := range b.schema.Functions {
 		if fn.Name == name {
 			b.schema.Functions = append(b.schema.Functions[:i], b.schema.Functions[i+1:]...)
+			return b
+		}
+	}
+	return b
+}
+
+// addDictionary adds a dictionary with a verbatim CREATE DICTIONARY query.
+func (b *schemaBuilder) addDictionary(dbName, name, createQuery string) *schemaBuilder {
+	b.schema.Dictionaries = append(b.schema.Dictionaries, Dictionary{
+		Database:    dbName,
+		Name:        name,
+		CreateQuery: createQuery,
+	})
+	return b
+}
+
+// removeDictionary removes a dictionary by database + name.
+func (b *schemaBuilder) removeDictionary(dbName, name string) *schemaBuilder {
+	for i, d := range b.schema.Dictionaries {
+		if d.Database == dbName && d.Name == name {
+			b.schema.Dictionaries = append(b.schema.Dictionaries[:i], b.schema.Dictionaries[i+1:]...)
 			return b
 		}
 	}

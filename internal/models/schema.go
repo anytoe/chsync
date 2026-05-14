@@ -8,12 +8,22 @@ import (
 
 // Schema represents a complete ClickHouse schema
 type Schema struct {
-	Databases []Database
-	Functions []Function
+	Databases    []Database
+	Functions    []Function
+	Dictionaries []Dictionary
 }
 
 // Function represents a SQL user-defined function
 type Function struct {
+	Name        string
+	CreateQuery string
+}
+
+// Dictionary represents a ClickHouse dictionary. The full CREATE DICTIONARY
+// statement is kept verbatim because dictionary bodies (SOURCE, LAYOUT,
+// LIFETIME, ...) are not parsed; diffs compare the raw query.
+type Dictionary struct {
+	Database    string
 	Name        string
 	CreateQuery string
 }
