@@ -44,6 +44,7 @@ type Database struct {
 type Table struct {
 	Name        string
 	Engine      string
+	EngineArgs  string
 	Columns     []Column
 	OrderBy     []string
 	PrimaryKey  []string

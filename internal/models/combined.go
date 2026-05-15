@@ -62,6 +62,7 @@ type CombinedTable struct {
 // TableProperties contains properties of a table
 type TableProperties struct {
 	Engine      string
+	EngineArgs  string
 	OrderBy     []string
 	PrimaryKey  []string
 	PartitionBy string
@@ -296,6 +297,7 @@ func tablesFromTarget(tables []Table) []CombinedTable {
 func tableToProperties(t Table) *TableProperties {
 	return &TableProperties{
 		Engine:      t.Engine,
+		EngineArgs:  t.EngineArgs,
 		OrderBy:     t.OrderBy,
 		PrimaryKey:  t.PrimaryKey,
 		PartitionBy: t.PartitionBy,

@@ -66,6 +66,7 @@ func (b *schemaBuilder) clone() *schemaBuilder {
 			cloned.schema.Databases[i].Tables[j] = Table{
 				Name:        tbl.Name,
 				Engine:      tbl.Engine,
+				EngineArgs:  tbl.EngineArgs,
 				OrderBy:     append([]string{}, tbl.OrderBy...),
 				PrimaryKey:  append([]string{}, tbl.PrimaryKey...),
 				PartitionBy: tbl.PartitionBy,
@@ -236,6 +237,23 @@ func (b *schemaBuilder) setTableEngine(dbName, tableName, newEngine string) *sch
 		for j := range b.schema.Databases[i].Tables {
 			if b.schema.Databases[i].Tables[j].Name == tableName {
 				b.schema.Databases[i].Tables[j].Engine = newEngine
+				return b
+			}
+		}
+	}
+	return b
+}
+
+// setTableEngineArgs sets a table's EngineArgs (the parenthesized engine
+// argument list, e.g. "xo_received_at" for ReplacingMergeTree(xo_received_at)).
+func (b *schemaBuilder) setTableEngineArgs(dbName, tableName, args string) *schemaBuilder {
+	for i := range b.schema.Databases {
+		if b.schema.Databases[i].Name != dbName {
+			continue
+		}
+		for j := range b.schema.Databases[i].Tables {
+			if b.schema.Databases[i].Tables[j].Name == tableName {
+				b.schema.Databases[i].Tables[j].EngineArgs = args
 				return b
 			}
 		}
