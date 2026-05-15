@@ -595,6 +595,66 @@ func TestSyncPlanGenerator_DictionaryOperations(t *testing.T) {
 	runTests(t, tests)
 }
 
+func TestSyncPlanGenerator_MaterializedViewOperations(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	mvV1 := "CREATE MATERIALIZED VIEW db1.mv TO db1.users (`id` Int32) AS SELECT id FROM db1.orders"
+	mvV2 := "CREATE MATERIALIZED VIEW db1.mv TO db1.users (`id` Int32) AS SELECT id FROM db1.orders WHERE id > 0"
+
+	tests := []struct {
+		name           string
+		from           func() Schema
+		to             func() Schema
+		wantOperations []expectedOperation
+	}{
+		{
+			name: "materialized view added",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().addMaterializedView("db1", "mv", mvV1).build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelMaterializedView, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{mvV1 + ";"}},
+			},
+		},
+		{
+			name: "materialized view removed",
+			from: func() Schema {
+				return baseSchema().addMaterializedView("db1", "mv", mvV1).build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelMaterializedView, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP VIEW IF EXISTS `db1`.`mv`;"}},
+			},
+		},
+		{
+			name: "materialized view body changed",
+			from: func() Schema {
+				return baseSchema().addMaterializedView("db1", "mv", mvV1).build()
+			},
+			to: func() Schema {
+				return baseSchema().addMaterializedView("db1", "mv", mvV2).build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelMaterializedView, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP VIEW IF EXISTS `db1`.`mv`;"}},
+				{level: LevelMaterializedView, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{mvV2 + ";"}},
+			},
+		},
+		{
+			name: "materialized view unchanged",
+			from: func() Schema {
+				return baseSchema().addMaterializedView("db1", "mv", mvV1).build()
+			},
+			to: func() Schema {
+				return baseSchema().addMaterializedView("db1", "mv", mvV1).build()
+			},
+			wantOperations: []expectedOperation{},
+		},
+	}
+
+	runTests(t, tests)
+}
+
 func TestSyncPlanGenerator_MixedOperations(t *testing.T) {
 	tests := []struct {
 		name           string
