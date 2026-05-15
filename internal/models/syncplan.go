@@ -322,6 +322,7 @@ func (g *SyncPlanGenerator) processTablesInDatabase(db CombinedDatabase) []Opera
 				// If ENGINE, ORDER BY, or PRIMARY KEY also changed, a rename is not enough: drop + recreate
 				needsRecreate := targetTable != nil && table.Source != nil && targetTable.Target != nil &&
 					(table.Source.Engine != targetTable.Target.Engine ||
+						table.Source.EngineArgs != targetTable.Target.EngineArgs ||
 						!equalStringSlices(table.Source.OrderBy, targetTable.Target.OrderBy) ||
 						!equalStringSlices(table.Source.PrimaryKey, targetTable.Target.PrimaryKey))
 
@@ -356,6 +357,7 @@ func (g *SyncPlanGenerator) processTableChanges(dbName string, table CombinedTab
 	// Check if table properties changed (engine, order by, primary key, etc.)
 	if table.Source != nil && table.Target != nil {
 		if table.Source.Engine != table.Target.Engine ||
+			table.Source.EngineArgs != table.Target.EngineArgs ||
 			!equalStringSlices(table.Source.OrderBy, table.Target.OrderBy) ||
 			!equalStringSlices(table.Source.PrimaryKey, table.Target.PrimaryKey) {
 			// ENGINE, ORDER BY, or PRIMARY KEY changed - requires drop + recreate
@@ -746,7 +748,11 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 			colDefs = append(colDefs, "PROJECTION "+n+" ("+t.Projections[n]+")")
 		}
 	}
-	sql := fmt.Sprintf("CREATE TABLE %s.%s (%s) ENGINE = %s", quoteIdent(dbName), quoteIdent(table.Name), strings.Join(colDefs, ", "), t.Engine)
+	engine := t.Engine
+	if t.EngineArgs != "" {
+		engine += "(" + t.EngineArgs + ")"
+	}
+	sql := fmt.Sprintf("CREATE TABLE %s.%s (%s) ENGINE = %s", quoteIdent(dbName), quoteIdent(table.Name), strings.Join(colDefs, ", "), engine)
 	if len(t.OrderBy) > 0 {
 		sql += " ORDER BY (" + strings.Join(t.OrderBy, ", ") + ")"
 	} else if strings.Contains(t.Engine, "MergeTree") {

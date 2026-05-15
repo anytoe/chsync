@@ -63,3 +63,66 @@ func TestParseSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestParseEngineArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "no parens at all",
+			in:   "MergeTree ORDER BY id",
+			want: "",
+		},
+		{
+			name: "empty parens",
+			in:   "MergeTree() ORDER BY id SETTINGS index_granularity = 8192",
+			want: "",
+		},
+		{
+			name: "ReplacingMergeTree with version column",
+			in:   "ReplacingMergeTree(xo_received_at) ORDER BY id SETTINGS index_granularity = 8192",
+			want: "xo_received_at",
+		},
+		{
+			name: "SummingMergeTree with column list",
+			in:   "SummingMergeTree(a, b, c) ORDER BY id",
+			want: "a, b, c",
+		},
+		{
+			name: "VersionedCollapsingMergeTree with two args",
+			in:   "VersionedCollapsingMergeTree(sign, version) ORDER BY id",
+			want: "sign, version",
+		},
+		{
+			name: "nested parens in args",
+			in:   "ReplacingMergeTree(toUInt64(modified_at)) ORDER BY id",
+			want: "toUInt64(modified_at)",
+		},
+		{
+			name: "quoted string with paren inside",
+			in:   "Distributed('cluster', 'db', 'table_(2024)', rand())",
+			want: "'cluster', 'db', 'table_(2024)', rand()",
+		},
+		{
+			name: "Shared engine strips replication params",
+			in:   "SharedReplacingMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}', xo_received_at) ORDER BY id",
+			want: "xo_received_at",
+		},
+		{
+			name: "Shared engine with only replication params yields empty",
+			in:   "SharedMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}') ORDER BY id",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseEngineArgs(tt.in)
+			if got != tt.want {
+				t.Errorf("parseEngineArgs(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

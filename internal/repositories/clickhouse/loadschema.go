@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/anytoe/chsync/internal/models"
@@ -262,6 +263,7 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 		table := models.Table{
 			Name:        name,
 			Engine:      models.NormalizeEngine(engine),
+			EngineArgs:  parseEngineArgs(engineFull),
 			PartitionBy: partitionKey,
 			Settings:    parseSettings(engineFull),
 		}
@@ -275,6 +277,62 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 		tables[dbName+"."+name] = table
 	}
 	return tables, rows.Err()
+}
+
+// replicationParamsRe matches the two leading replication arguments that
+// Shared*/Replicated* MergeTree engines carry inside their engine arg list:
+//
+//	'/clickhouse/tables/{uuid}/{shard}', '{replica}'[, <real args>]
+//
+// These are infrastructure parameters managed by ClickHouse Cloud and not part
+// of the logical table definition, so they are stripped to mirror
+// NormalizeEngine which already strips the "Shared" prefix from the engine name.
+var replicationParamsRe = regexp.MustCompile(`^'/clickhouse/tables/\{uuid\}/\{shard\}',\s*'\{replica\}'(?:,\s*)?`)
+
+// parseEngineArgs extracts the parenthesized engine arguments from a
+// system.tables engine_full string. ClickHouse formats engine_full as
+// "<Engine>(<args>) [ORDER BY ...] [PARTITION BY ...] [SETTINGS ...]"; an
+// engine reported with no args (e.g. "MergeTree") has no parens at all and
+// this returns "".
+//
+// The version column on engines like ReplacingMergeTree(xo_received_at) lives
+// here and would be lost without this — system.tables.engine returns only the
+// bare engine name.
+func parseEngineArgs(engineFull string) string {
+	open := strings.IndexByte(engineFull, '(')
+	if open < 0 {
+		return ""
+	}
+	depth := 0
+	inQuote := false
+	close := -1
+	for i := open; i < len(engineFull); i++ {
+		ch := engineFull[i]
+		if ch == '\'' {
+			inQuote = !inQuote
+			continue
+		}
+		if inQuote {
+			continue
+		}
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				close = i
+			}
+		}
+		if close != -1 {
+			break
+		}
+	}
+	if close < 0 {
+		return ""
+	}
+	args := engineFull[open+1 : close]
+	return replicationParamsRe.ReplaceAllString(args, "")
 }
 
 // parseSettings extracts the SETTINGS clause from a system.tables engine_full
