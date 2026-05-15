@@ -302,6 +302,26 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "table engine args added (ReplacingMergeTree gains version column)",
+			from: func() Schema {
+				return baseSchema().
+					setTableEngine("db1", "users", "ReplacingMergeTree").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setTableEngine("db1", "users", "ReplacingMergeTree").
+					setTableEngineArgs("db1", "users", "xo_received_at").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
+				{level: LevelTable, action: ActionCreate, statements: []string{
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = ReplacingMergeTree(xo_received_at) ORDER BY (id);",
+				}},
+			},
+		},
+		{
 			name: "table order by changed",
 			from: func() Schema {
 				return baseSchema().
