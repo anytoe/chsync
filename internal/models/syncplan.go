@@ -44,12 +44,13 @@ type Operation struct {
 type OperationLevel string
 
 const (
-	LevelDatabase   OperationLevel = "database"
-	LevelTable      OperationLevel = "table"
-	LevelColumn     OperationLevel = "column"
-	LevelIndex      OperationLevel = "index"
-	LevelFunction   OperationLevel = "function"
-	LevelDictionary OperationLevel = "dictionary"
+	LevelDatabase         OperationLevel = "database"
+	LevelTable            OperationLevel = "table"
+	LevelColumn           OperationLevel = "column"
+	LevelIndex            OperationLevel = "index"
+	LevelFunction         OperationLevel = "function"
+	LevelDictionary       OperationLevel = "dictionary"
+	LevelMaterializedView OperationLevel = "materialized_view"
 )
 
 // OperationAction identifies what action a schema operation performs.
@@ -126,6 +127,50 @@ func (g *SyncPlanGenerator) buildHybridStrategy(combined *CombinedSchema) Strate
 			// Database exists in both, process tables
 			ops := g.processTablesInDatabase(db)
 			operations = append(operations, ops...)
+		}
+	}
+
+	// Process materialized-view operations. MVs reference both a source table
+	// (in the AS SELECT body) and an optional TO target table, so they are
+	// emitted after table operations. Body changes drop+recreate — chsync
+	// stores the CREATE MATERIALIZED VIEW statement verbatim and does not
+	// attempt to ALTER MV bodies (ClickHouse has no such command).
+	for _, m := range combined.MaterializedViews {
+		qname := quoteIdent(m.Database) + "." + quoteIdent(m.Name)
+		switch m.Presence {
+		case Target:
+			operations = append(operations, Operation{
+				Level:       LevelMaterializedView,
+				Action:      ActionCreate,
+				CanLoseData: false,
+				Statements:  []string{m.Target.CreateQuery + ";"},
+				Explanation: "Create materialized view " + m.Name,
+			})
+		case Source:
+			operations = append(operations, Operation{
+				Level:       LevelMaterializedView,
+				Action:      ActionDrop,
+				CanLoseData: true,
+				Statements:  []string{"DROP VIEW IF EXISTS " + qname + ";"},
+				Explanation: "Drop materialized view " + m.Name,
+			})
+		case Both:
+			if m.Source.CreateQuery != m.Target.CreateQuery {
+				operations = append(operations, Operation{
+					Level:       LevelMaterializedView,
+					Action:      ActionDrop,
+					CanLoseData: true,
+					Statements:  []string{"DROP VIEW IF EXISTS " + qname + ";"},
+					Explanation: "Drop materialized view " + m.Name + " (body changed)",
+				})
+				operations = append(operations, Operation{
+					Level:       LevelMaterializedView,
+					Action:      ActionCreate,
+					CanLoseData: false,
+					Statements:  []string{m.Target.CreateQuery + ";"},
+					Explanation: "Create materialized view " + m.Name,
+				})
+			}
 		}
 	}
 

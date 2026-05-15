@@ -8,9 +8,10 @@ import (
 
 // Schema represents a complete ClickHouse schema
 type Schema struct {
-	Databases    []Database
-	Functions    []Function
-	Dictionaries []Dictionary
+	Databases         []Database
+	Functions         []Function
+	Dictionaries      []Dictionary
+	MaterializedViews []MaterializedView
 }
 
 // Function represents a SQL user-defined function
@@ -23,6 +24,17 @@ type Function struct {
 // statement is kept verbatim because dictionary bodies (SOURCE, LAYOUT,
 // LIFETIME, ...) are not parsed; diffs compare the raw query.
 type Dictionary struct {
+	Database    string
+	Name        string
+	CreateQuery string
+}
+
+// MaterializedView represents a ClickHouse materialized view. The full
+// CREATE MATERIALIZED VIEW statement (including the TO target and AS SELECT
+// body) is kept verbatim because reconstructing it from column metadata
+// alone would drop the transformation query and target-table linkage —
+// ClickHouse exposes both via system.tables.create_table_query.
+type MaterializedView struct {
 	Database    string
 	Name        string
 	CreateQuery string

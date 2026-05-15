@@ -82,6 +82,11 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 		return nil, fmt.Errorf("load dictionaries: %w", err)
 	}
 
+	materializedViews, err := c.loadMaterializedViews(ctx, databases, f)
+	if err != nil {
+		return nil, fmt.Errorf("load materialized views: %w", err)
+	}
+
 	// Assign columns and projections to their tables
 	for key, cols := range columns {
 		if t, ok := tables[key]; ok {
@@ -110,8 +115,41 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 
 	schema.Functions = functions
 	schema.Dictionaries = dictionaries
+	schema.MaterializedViews = materializedViews
 
 	return schema, nil
+}
+
+// loadMaterializedViews reads CREATE MATERIALIZED VIEW statements verbatim
+// from system.tables (where engine = 'MaterializedView') for the given
+// databases. The full create_table_query is kept because the AS SELECT body
+// and the TO target clause cannot be recovered from column metadata alone.
+func (c *Client) loadMaterializedViews(ctx context.Context, databases []string, f Filter) ([]models.MaterializedView, error) {
+	if len(databases) == 0 {
+		return nil, nil
+	}
+	cond := fmt.Sprintf("database IN (%s) AND engine = 'MaterializedView'", quoted(databases))
+	cond += tableFilterClauses(f, "name")
+
+	query := fmt.Sprintf(
+		"SELECT database, name, create_table_query FROM system.tables WHERE %s ORDER BY database, name",
+		cond,
+	)
+	rows, err := c.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query materialized views: %w", err)
+	}
+	defer rows.Close()
+
+	var mvs []models.MaterializedView
+	for rows.Next() {
+		var m models.MaterializedView
+		if err := rows.Scan(&m.Database, &m.Name, &m.CreateQuery); err != nil {
+			return nil, fmt.Errorf("scan materialized view: %w", err)
+		}
+		mvs = append(mvs, m)
+	}
+	return mvs, rows.Err()
 }
 
 // loadDictionaries reads CREATE DICTIONARY statements verbatim from
@@ -201,7 +239,7 @@ func (c *Client) loadDatabases(ctx context.Context, f Filter) ([]string, error) 
 // loadTables loads all tables for the given databases in a single query.
 // Returns a map keyed by "database.table".
 func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (map[string]models.Table, error) {
-	cond := fmt.Sprintf("database IN (%s) AND engine != 'Dictionary'", quoted(databases))
+	cond := fmt.Sprintf("database IN (%s) AND engine NOT IN ('Dictionary', 'MaterializedView')", quoted(databases))
 	cond += tableFilterClauses(f, "name")
 
 	query := fmt.Sprintf(

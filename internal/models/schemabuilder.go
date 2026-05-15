@@ -52,9 +52,10 @@ func (b *schemaBuilder) build() Schema {
 func (b *schemaBuilder) clone() *schemaBuilder {
 	cloned := &schemaBuilder{
 		schema: Schema{
-			Databases:    make([]Database, len(b.schema.Databases)),
-			Functions:    append([]Function{}, b.schema.Functions...),
-			Dictionaries: append([]Dictionary{}, b.schema.Dictionaries...),
+			Databases:         make([]Database, len(b.schema.Databases)),
+			Functions:         append([]Function{}, b.schema.Functions...),
+			Dictionaries:      append([]Dictionary{}, b.schema.Dictionaries...),
+			MaterializedViews: append([]MaterializedView{}, b.schema.MaterializedViews...),
 		},
 	}
 	for i, db := range b.schema.Databases {
@@ -386,6 +387,27 @@ func (b *schemaBuilder) removeDictionary(dbName, name string) *schemaBuilder {
 	for i, d := range b.schema.Dictionaries {
 		if d.Database == dbName && d.Name == name {
 			b.schema.Dictionaries = append(b.schema.Dictionaries[:i], b.schema.Dictionaries[i+1:]...)
+			return b
+		}
+	}
+	return b
+}
+
+// addMaterializedView adds a materialized view with a verbatim CREATE MATERIALIZED VIEW query.
+func (b *schemaBuilder) addMaterializedView(dbName, name, createQuery string) *schemaBuilder {
+	b.schema.MaterializedViews = append(b.schema.MaterializedViews, MaterializedView{
+		Database:    dbName,
+		Name:        name,
+		CreateQuery: createQuery,
+	})
+	return b
+}
+
+// removeMaterializedView removes a materialized view by database + name.
+func (b *schemaBuilder) removeMaterializedView(dbName, name string) *schemaBuilder {
+	for i, m := range b.schema.MaterializedViews {
+		if m.Database == dbName && m.Name == name {
+			b.schema.MaterializedViews = append(b.schema.MaterializedViews[:i], b.schema.MaterializedViews[i+1:]...)
 			return b
 		}
 	}

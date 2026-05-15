@@ -11,9 +11,10 @@ const (
 
 // CombinedSchema represents a merged view of two schemas
 type CombinedSchema struct {
-	Databases    []CombinedDatabase
-	Functions    []CombinedFunction
-	Dictionaries []CombinedDictionary
+	Databases         []CombinedDatabase
+	Functions         []CombinedFunction
+	Dictionaries      []CombinedDictionary
+	MaterializedViews []CombinedMaterializedView
 }
 
 // CombinedDictionary represents a dictionary that may exist in source, target, or both
@@ -27,6 +28,20 @@ type CombinedDictionary struct {
 
 // DictionaryProperties contains properties of a dictionary
 type DictionaryProperties struct {
+	CreateQuery string
+}
+
+// CombinedMaterializedView represents a materialized view that may exist in source, target, or both
+type CombinedMaterializedView struct {
+	Database string
+	Name     string
+	Presence Presence
+	Source   *MaterializedViewProperties
+	Target   *MaterializedViewProperties
+}
+
+// MaterializedViewProperties contains properties of a materialized view
+type MaterializedViewProperties struct {
 	CreateQuery string
 }
 
@@ -138,8 +153,49 @@ func NewCombinedSchema(from, to Schema) *CombinedSchema {
 
 	cs.Functions = compareFunctions(from.Functions, to.Functions)
 	cs.Dictionaries = compareDictionaries(from.Dictionaries, to.Dictionaries)
+	cs.MaterializedViews = compareMaterializedViews(from.MaterializedViews, to.MaterializedViews)
 
 	return cs
+}
+
+func compareMaterializedViews(fromMVs, toMVs []MaterializedView) []CombinedMaterializedView {
+	key := func(m MaterializedView) string { return m.Database + "." + m.Name }
+
+	fromMap := make(map[string]MaterializedView)
+	for _, m := range fromMVs {
+		fromMap[key(m)] = m
+	}
+
+	inTo := make(map[string]bool)
+	var result []CombinedMaterializedView
+
+	for _, toMV := range toMVs {
+		k := key(toMV)
+		inTo[k] = true
+		cm := CombinedMaterializedView{Database: toMV.Database, Name: toMV.Name}
+		if fromMV, inFrom := fromMap[k]; inFrom {
+			cm.Presence = Both
+			cm.Source = &MaterializedViewProperties{CreateQuery: fromMV.CreateQuery}
+			cm.Target = &MaterializedViewProperties{CreateQuery: toMV.CreateQuery}
+		} else {
+			cm.Presence = Target
+			cm.Target = &MaterializedViewProperties{CreateQuery: toMV.CreateQuery}
+		}
+		result = append(result, cm)
+	}
+
+	for _, fromMV := range fromMVs {
+		if !inTo[key(fromMV)] {
+			result = append(result, CombinedMaterializedView{
+				Database: fromMV.Database,
+				Name:     fromMV.Name,
+				Presence: Source,
+				Source:   &MaterializedViewProperties{CreateQuery: fromMV.CreateQuery},
+			})
+		}
+	}
+
+	return result
 }
 
 func compareDictionaries(fromDicts, toDicts []Dictionary) []CombinedDictionary {
