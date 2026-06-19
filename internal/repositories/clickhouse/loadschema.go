@@ -260,10 +260,11 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 			return nil, fmt.Errorf("scan table: %w", err)
 		}
 
+		normEngine := models.NormalizeEngine(engine)
 		table := models.Table{
 			Name:        name,
-			Engine:      models.NormalizeEngine(engine),
-			EngineArgs:  parseEngineArgs(engineFull),
+			Engine:      normEngine,
+			EngineArgs:  normalizeEngineArgs(normEngine, engineFull),
 			PartitionBy: partitionKey,
 			Settings:    parseSettings(engineFull),
 		}
@@ -288,6 +289,25 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 // of the logical table definition, so they are stripped to mirror
 // NormalizeEngine which already strips the "Shared" prefix from the engine name.
 var replicationParamsRe = regexp.MustCompile(`^'/clickhouse/tables/\{uuid\}/\{shard\}',\s*'\{replica\}'(?:,\s*)?`)
+
+// normalizeEngineArgs returns the engine arguments to keep for the in-memory
+// model, dropping deprecated positional syntax.
+//
+// Modern plain MergeTree takes no engine arguments — the sorting key lives in an
+// ORDER BY clause. A table created with the deprecated positional form, e.g.
+// MergeTree(ascap_program_code, cue_sequence_number), is still reported by
+// ClickHouse with those args in engine_full, but the same key is exposed
+// separately via sorting_key (→ Table.OrderBy). Re-emitting the args would
+// duplicate the key and read as drift against the modern form, so we drop them.
+//
+// Variants like ReplacingMergeTree(version) or CollapsingMergeTree(sign) carry
+// meaningful modern args and are left untouched.
+func normalizeEngineArgs(engine, engineFull string) string {
+	if engine == "MergeTree" {
+		return ""
+	}
+	return parseEngineArgs(engineFull)
+}
 
 // parseEngineArgs extracts the parenthesized engine arguments from a
 // system.tables engine_full string. ClickHouse formats engine_full as
