@@ -126,3 +126,46 @@ func TestParseEngineArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeEngineArgs(t *testing.T) {
+	tests := []struct {
+		name       string
+		engine     string
+		engineFull string
+		want       string
+	}{
+		{
+			name:       "plain MergeTree drops deprecated positional key args",
+			engine:     "MergeTree",
+			engineFull: "MergeTree(ascap_program_code, cue_sequence_number) ORDER BY (ascap_program_code, cue_sequence_number) SETTINGS index_granularity = 8192",
+			want:       "",
+		},
+		{
+			name:       "modern plain MergeTree has no args",
+			engine:     "MergeTree",
+			engineFull: "MergeTree() ORDER BY id",
+			want:       "",
+		},
+		{
+			name:       "ReplacingMergeTree keeps version column",
+			engine:     "ReplacingMergeTree",
+			engineFull: "ReplacingMergeTree(xo_received_at) ORDER BY id",
+			want:       "xo_received_at",
+		},
+		{
+			name:       "CollapsingMergeTree keeps sign column",
+			engine:     "CollapsingMergeTree",
+			engineFull: "CollapsingMergeTree(sign) ORDER BY id",
+			want:       "sign",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeEngineArgs(tt.engine, tt.engineFull)
+			if got != tt.want {
+				t.Errorf("normalizeEngineArgs(%q, %q) = %q, want %q", tt.engine, tt.engineFull, got, tt.want)
+			}
+		})
+	}
+}
