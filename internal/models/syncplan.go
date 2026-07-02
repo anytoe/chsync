@@ -51,6 +51,7 @@ const (
 	LevelFunction         OperationLevel = "function"
 	LevelDictionary       OperationLevel = "dictionary"
 	LevelMaterializedView OperationLevel = "materialized_view"
+	LevelView             OperationLevel = "view"
 )
 
 // OperationAction identifies what action a schema operation performs.
@@ -169,6 +170,49 @@ func (g *SyncPlanGenerator) buildHybridStrategy(combined *CombinedSchema) Strate
 					CanLoseData: false,
 					Statements:  []string{m.Target.CreateQuery + ";"},
 					Explanation: "Create materialized view " + m.Name,
+				})
+			}
+		}
+	}
+
+	// Process (non-materialized) view operations. Views reference the tables and
+	// other views in their AS SELECT body, so they are emitted after table
+	// operations. Body changes drop+recreate — chsync stores the CREATE VIEW
+	// statement verbatim and does not attempt to ALTER view bodies.
+	for _, v := range combined.Views {
+		qname := quoteIdent(v.Database) + "." + quoteIdent(v.Name)
+		switch v.Presence {
+		case Target:
+			operations = append(operations, Operation{
+				Level:       LevelView,
+				Action:      ActionCreate,
+				CanLoseData: false,
+				Statements:  []string{v.Target.CreateQuery + ";"},
+				Explanation: "Create view " + v.Name,
+			})
+		case Source:
+			operations = append(operations, Operation{
+				Level:       LevelView,
+				Action:      ActionDrop,
+				CanLoseData: false,
+				Statements:  []string{"DROP VIEW IF EXISTS " + qname + ";"},
+				Explanation: "Drop view " + v.Name,
+			})
+		case Both:
+			if v.Source.CreateQuery != v.Target.CreateQuery {
+				operations = append(operations, Operation{
+					Level:       LevelView,
+					Action:      ActionDrop,
+					CanLoseData: false,
+					Statements:  []string{"DROP VIEW IF EXISTS " + qname + ";"},
+					Explanation: "Drop view " + v.Name + " (body changed)",
+				})
+				operations = append(operations, Operation{
+					Level:       LevelView,
+					Action:      ActionCreate,
+					CanLoseData: false,
+					Statements:  []string{v.Target.CreateQuery + ";"},
+					Explanation: "Create view " + v.Name,
 				})
 			}
 		}

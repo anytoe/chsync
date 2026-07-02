@@ -87,6 +87,11 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 		return nil, fmt.Errorf("load materialized views: %w", err)
 	}
 
+	views, err := c.loadViews(ctx, databases, f)
+	if err != nil {
+		return nil, fmt.Errorf("load views: %w", err)
+	}
+
 	// Assign columns and projections to their tables
 	for key, cols := range columns {
 		if t, ok := tables[key]; ok {
@@ -116,8 +121,41 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 	schema.Functions = functions
 	schema.Dictionaries = dictionaries
 	schema.MaterializedViews = materializedViews
+	schema.Views = views
 
 	return schema, nil
+}
+
+// loadViews reads CREATE VIEW statements verbatim from system.tables
+// (where engine = 'View') for the given databases. The full create_table_query
+// is kept because a view's shape lives in its AS SELECT body, not in
+// system.columns.
+func (c *Client) loadViews(ctx context.Context, databases []string, f Filter) ([]models.View, error) {
+	if len(databases) == 0 {
+		return nil, nil
+	}
+	cond := fmt.Sprintf("database IN (%s) AND engine = 'View'", quoted(databases))
+	cond += tableFilterClauses(f, "name")
+
+	query := fmt.Sprintf(
+		"SELECT database, name, create_table_query FROM system.tables WHERE %s ORDER BY database, name",
+		cond,
+	)
+	rows, err := c.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query views: %w", err)
+	}
+	defer rows.Close()
+
+	var views []models.View
+	for rows.Next() {
+		var v models.View
+		if err := rows.Scan(&v.Database, &v.Name, &v.CreateQuery); err != nil {
+			return nil, fmt.Errorf("scan view: %w", err)
+		}
+		views = append(views, v)
+	}
+	return views, rows.Err()
 }
 
 // loadMaterializedViews reads CREATE MATERIALIZED VIEW statements verbatim
@@ -239,7 +277,7 @@ func (c *Client) loadDatabases(ctx context.Context, f Filter) ([]string, error) 
 // loadTables loads all tables for the given databases in a single query.
 // Returns a map keyed by "database.table".
 func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (map[string]models.Table, error) {
-	cond := fmt.Sprintf("database IN (%s) AND engine NOT IN ('Dictionary', 'MaterializedView')", quoted(databases))
+	cond := fmt.Sprintf("database IN (%s) AND engine NOT IN ('Dictionary', 'MaterializedView', 'View')", quoted(databases))
 	cond += tableFilterClauses(f, "name")
 
 	query := fmt.Sprintf(

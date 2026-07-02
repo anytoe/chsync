@@ -675,6 +675,66 @@ func TestSyncPlanGenerator_MaterializedViewOperations(t *testing.T) {
 	runTests(t, tests)
 }
 
+func TestSyncPlanGenerator_ViewOperations(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	viewV1 := "CREATE VIEW db1.v AS SELECT id FROM db1.orders"
+	viewV2 := "CREATE VIEW db1.v AS SELECT id FROM db1.orders WHERE id > 0"
+
+	tests := []struct {
+		name           string
+		from           func() Schema
+		to             func() Schema
+		wantOperations []expectedOperation
+	}{
+		{
+			name: "view added",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().addView("db1", "v", viewV1).build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelView, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{viewV1 + ";"}},
+			},
+		},
+		{
+			name: "view removed",
+			from: func() Schema {
+				return baseSchema().addView("db1", "v", viewV1).build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelView, action: ActionDrop, canLoseData: boolPtr(false), statements: []string{"DROP VIEW IF EXISTS `db1`.`v`;"}},
+			},
+		},
+		{
+			name: "view body changed",
+			from: func() Schema {
+				return baseSchema().addView("db1", "v", viewV1).build()
+			},
+			to: func() Schema {
+				return baseSchema().addView("db1", "v", viewV2).build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelView, action: ActionDrop, canLoseData: boolPtr(false), statements: []string{"DROP VIEW IF EXISTS `db1`.`v`;"}},
+				{level: LevelView, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{viewV2 + ";"}},
+			},
+		},
+		{
+			name: "view unchanged",
+			from: func() Schema {
+				return baseSchema().addView("db1", "v", viewV1).build()
+			},
+			to: func() Schema {
+				return baseSchema().addView("db1", "v", viewV1).build()
+			},
+			wantOperations: []expectedOperation{},
+		},
+	}
+
+	runTests(t, tests)
+}
+
 func TestSyncPlanGenerator_MixedOperations(t *testing.T) {
 	tests := []struct {
 		name           string

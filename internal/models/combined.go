@@ -15,6 +15,7 @@ type CombinedSchema struct {
 	Functions         []CombinedFunction
 	Dictionaries      []CombinedDictionary
 	MaterializedViews []CombinedMaterializedView
+	Views             []CombinedView
 }
 
 // CombinedDictionary represents a dictionary that may exist in source, target, or both
@@ -42,6 +43,20 @@ type CombinedMaterializedView struct {
 
 // MaterializedViewProperties contains properties of a materialized view
 type MaterializedViewProperties struct {
+	CreateQuery string
+}
+
+// CombinedView represents a view that may exist in source, target, or both
+type CombinedView struct {
+	Database string
+	Name     string
+	Presence Presence
+	Source   *ViewProperties
+	Target   *ViewProperties
+}
+
+// ViewProperties contains properties of a view
+type ViewProperties struct {
 	CreateQuery string
 }
 
@@ -154,8 +169,49 @@ func NewCombinedSchema(from, to Schema) *CombinedSchema {
 	cs.Functions = compareFunctions(from.Functions, to.Functions)
 	cs.Dictionaries = compareDictionaries(from.Dictionaries, to.Dictionaries)
 	cs.MaterializedViews = compareMaterializedViews(from.MaterializedViews, to.MaterializedViews)
+	cs.Views = compareViews(from.Views, to.Views)
 
 	return cs
+}
+
+func compareViews(fromViews, toViews []View) []CombinedView {
+	key := func(v View) string { return v.Database + "." + v.Name }
+
+	fromMap := make(map[string]View)
+	for _, v := range fromViews {
+		fromMap[key(v)] = v
+	}
+
+	inTo := make(map[string]bool)
+	var result []CombinedView
+
+	for _, toView := range toViews {
+		k := key(toView)
+		inTo[k] = true
+		cv := CombinedView{Database: toView.Database, Name: toView.Name}
+		if fromView, inFrom := fromMap[k]; inFrom {
+			cv.Presence = Both
+			cv.Source = &ViewProperties{CreateQuery: fromView.CreateQuery}
+			cv.Target = &ViewProperties{CreateQuery: toView.CreateQuery}
+		} else {
+			cv.Presence = Target
+			cv.Target = &ViewProperties{CreateQuery: toView.CreateQuery}
+		}
+		result = append(result, cv)
+	}
+
+	for _, fromView := range fromViews {
+		if !inTo[key(fromView)] {
+			result = append(result, CombinedView{
+				Database: fromView.Database,
+				Name:     fromView.Name,
+				Presence: Source,
+				Source:   &ViewProperties{CreateQuery: fromView.CreateQuery},
+			})
+		}
+	}
+
+	return result
 }
 
 func compareMaterializedViews(fromMVs, toMVs []MaterializedView) []CombinedMaterializedView {
