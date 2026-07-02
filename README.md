@@ -256,9 +256,12 @@ sequenceDiagram
 | Constraints | no |
 | Indexes | no |
 | Table settings | yes (ALTER MODIFY/RESET SETTING) |
-| Views | no |
-| Materialized views | no |
-| Dictionaries | no |
+| Create / drop view | yes |
+| Modify view | yes (drop + recreate) |
+| Create / drop materialized view | yes |
+| Modify materialized view | yes (drop + recreate) |
+| Create / drop dictionary | yes |
+| Modify dictionary | yes (drop + recreate) |
 
 ## Notes
 

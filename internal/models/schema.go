@@ -12,6 +12,7 @@ type Schema struct {
 	Functions         []Function
 	Dictionaries      []Dictionary
 	MaterializedViews []MaterializedView
+	Views             []View
 }
 
 // Function represents a SQL user-defined function
@@ -35,6 +36,17 @@ type Dictionary struct {
 // alone would drop the transformation query and target-table linkage —
 // ClickHouse exposes both via system.tables.create_table_query.
 type MaterializedView struct {
+	Database    string
+	Name        string
+	CreateQuery string
+}
+
+// View represents a ClickHouse (non-materialized) view. The full CREATE VIEW
+// statement (including the AS SELECT body) is kept verbatim: a view has no
+// stored columns of its own — its shape derives from the query — so it cannot
+// be reconstructed from system.columns. ClickHouse exposes the definition via
+// system.tables.create_table_query (engine = 'View').
+type View struct {
 	Database    string
 	Name        string
 	CreateQuery string
