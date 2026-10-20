@@ -115,6 +115,21 @@ func TestParseEngineArgs(t *testing.T) {
 			in:   "SharedMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}') ORDER BY id",
 			want: "",
 		},
+		{
+			name: "no engine parens: PRIMARY KEY tuple is not engine args",
+			in:   "ReplacingMergeTree PRIMARY KEY (detected_year, detected_year_quarter, channel) ORDER BY (detected_year, detected_year_quarter, channel, client_source, detected) SETTINGS index_granularity = 8192",
+			want: "",
+		},
+		{
+			name: "no engine parens: ORDER BY tuple is not engine args",
+			in:   "ReplacingMergeTree ORDER BY (a, b) SETTINGS index_granularity = 8192",
+			want: "",
+		},
+		{
+			name: "no engine parens: PARTITION BY expression is not engine args",
+			in:   "CollapsingMergeTree PARTITION BY toYYYYMM(d) ORDER BY tuple()",
+			want: "",
+		},
 	}
 
 	for _, tt := range tests {
