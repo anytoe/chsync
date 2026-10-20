@@ -349,16 +349,19 @@ func normalizeEngineArgs(engine, engineFull string) string {
 
 // parseEngineArgs extracts the parenthesized engine arguments from a
 // system.tables engine_full string. ClickHouse formats engine_full as
-// "<Engine>(<args>) [ORDER BY ...] [PARTITION BY ...] [SETTINGS ...]"; an
-// engine reported with no args (e.g. "MergeTree") has no parens at all and
-// this returns "".
+// "<Engine>(<args>) [PRIMARY KEY ...] [ORDER BY ...] [PARTITION BY ...] [SETTINGS ...]".
+//
+// An engine created without args (e.g. "ReplacingMergeTree()") is reported
+// with no parens after its name at all, so only a '(' that directly follows
+// the engine name counts. Later clauses such as PRIMARY KEY (a, b) or
+// ORDER BY (a, b) also contain parens and must not be mistaken for args.
 //
 // The version column on engines like ReplacingMergeTree(xo_received_at) lives
 // here and would be lost without this — system.tables.engine returns only the
 // bare engine name.
 func parseEngineArgs(engineFull string) string {
 	open := strings.IndexByte(engineFull, '(')
-	if open < 0 {
+	if open < 0 || open != engineNameLen(engineFull) {
 		return ""
 	}
 	depth := 0
@@ -391,6 +394,22 @@ func parseEngineArgs(engineFull string) string {
 	}
 	args := engineFull[open+1 : close]
 	return replicationParamsRe.ReplaceAllString(args, "")
+}
+
+// engineNameLen returns the length of the leading engine name identifier in
+// an engine_full string (letters, digits and underscores).
+func engineNameLen(engineFull string) int {
+	for i := 0; i < len(engineFull); i++ {
+		ch := engineFull[i]
+		isIdent := ch == '_' ||
+			(ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9')
+		if !isIdent {
+			return i
+		}
+	}
+	return len(engineFull)
 }
 
 // parseSettings extracts the SETTINGS clause from a system.tables engine_full
