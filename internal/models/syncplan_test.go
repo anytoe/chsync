@@ -207,6 +207,57 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "column default kind changed to MATERIALIZED",
+			from: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "year", "UInt16").
+					setColumnDefault("db1", "users", "year", "toYear(now())").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "year", "UInt16").
+					setColumnDefaultKind("db1", "users", "year", "MATERIALIZED", "toYear(now())").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `year` UInt16 MATERIALIZED toYear(now());"}},
+			},
+		},
+		{
+			name: "column MATERIALIZED removed",
+			from: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "year", "UInt16").
+					setColumnDefaultKind("db1", "users", "year", "MATERIALIZED", "toYear(now())").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "year", "UInt16").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `year` UInt16 REMOVE MATERIALIZED;"}},
+			},
+		},
+		{
+			name: "column ALIAS unchanged",
+			from: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "upper_name", "String").
+					setColumnDefaultKind("db1", "users", "upper_name", "ALIAS", "upper(name)").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "upper_name", "String").
+					setColumnDefaultKind("db1", "users", "upper_name", "ALIAS", "upper(name)").
+					build()
+			},
+			wantOperations: []expectedOperation{},
+		},
+		{
 			name: "column rename - high similarity",
 			from: func() Schema {
 				return baseSchema().
@@ -266,6 +317,26 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
 					"CREATE TABLE `db1`.`products` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id);",
+				}},
+			},
+		},
+		{
+			name: "table created with MATERIALIZED, ALIAS and EPHEMERAL columns",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addTable("db1", "events", "MergeTree", []string{"id"}, []Column{
+						{Name: "id", Type: "Int32"},
+						{Name: "d", Type: "Date", DefaultKind: "DEFAULT", DefaultExpression: "today()"},
+						{Name: "y", Type: "UInt16", DefaultKind: "MATERIALIZED", DefaultExpression: "toYear(d)"},
+						{Name: "ds", Type: "String", DefaultKind: "ALIAS", DefaultExpression: "toString(d)"},
+						{Name: "tmp", Type: "String", DefaultKind: "EPHEMERAL"},
+					}).
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
+					"CREATE TABLE `db1`.`events` (`id` Int32, `d` Date DEFAULT today(), `y` UInt16 MATERIALIZED toYear(d), `ds` String ALIAS toString(d), `tmp` String EPHEMERAL) ENGINE = MergeTree ORDER BY (id);",
 				}},
 			},
 		},

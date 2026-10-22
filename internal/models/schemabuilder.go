@@ -86,6 +86,7 @@ func (b *schemaBuilder) clone() *schemaBuilder {
 				cloned.schema.Databases[i].Tables[j].Columns[k] = Column{
 					Name:              col.Name,
 					Type:              col.Type,
+					DefaultKind:       col.DefaultKind,
 					DefaultExpression: col.DefaultExpression,
 					CompressionCodec:  col.CompressionCodec,
 					Comment:           col.Comment,
@@ -171,8 +172,18 @@ func (b *schemaBuilder) setColumnType(dbName, tableName, colName, newType string
 	return b
 }
 
-// setColumnDefault changes the default expression of a column.
+// setColumnDefault sets a plain DEFAULT expression on a column. Empty removes it.
 func (b *schemaBuilder) setColumnDefault(dbName, tableName, colName, defaultExpr string) *schemaBuilder {
+	kind := "DEFAULT"
+	if defaultExpr == "" {
+		kind = ""
+	}
+	return b.setColumnDefaultKind(dbName, tableName, colName, kind, defaultExpr)
+}
+
+// setColumnDefaultKind sets the default kind (DEFAULT, MATERIALIZED, ALIAS, EPHEMERAL)
+// and expression of a column. Empty kind removes the default.
+func (b *schemaBuilder) setColumnDefaultKind(dbName, tableName, colName, kind, defaultExpr string) *schemaBuilder {
 	for i := range b.schema.Databases {
 		if b.schema.Databases[i].Name != dbName {
 			continue
@@ -183,6 +194,7 @@ func (b *schemaBuilder) setColumnDefault(dbName, tableName, colName, defaultExpr
 			}
 			for k := range b.schema.Databases[i].Tables[j].Columns {
 				if b.schema.Databases[i].Tables[j].Columns[k].Name == colName {
+					b.schema.Databases[i].Tables[j].Columns[k].DefaultKind = kind
 					b.schema.Databases[i].Tables[j].Columns[k].DefaultExpression = defaultExpr
 					return b
 				}

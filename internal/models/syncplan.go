@@ -693,17 +693,19 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 		case Both:
 			// Column exists in both; check for property or position changes
 			if col.Source != nil && col.Target != nil {
-				if NormalizeColumnType(col.Source.Type, g.config.TypeAliases) != NormalizeColumnType(col.Target.Type, g.config.TypeAliases) || NormalizeDefaultExpression(col.Source.DefaultExpression) != NormalizeDefaultExpression(col.Target.DefaultExpression) {
+				typeChanged := NormalizeColumnType(col.Source.Type, g.config.TypeAliases) != NormalizeColumnType(col.Target.Type, g.config.TypeAliases)
+				defaultChanged := normalizedDefault(col.Source) != normalizedDefault(col.Target)
+				if typeChanged || defaultChanged {
 					var reasons []string
-					if NormalizeColumnType(col.Source.Type, g.config.TypeAliases) != NormalizeColumnType(col.Target.Type, g.config.TypeAliases) {
+					if typeChanged {
 						reasons = append(reasons, "type: "+col.Source.Type+" → "+col.Target.Type+" (mutation, runs in background)")
 					}
-					if NormalizeDefaultExpression(col.Source.DefaultExpression) != NormalizeDefaultExpression(col.Target.DefaultExpression) {
-						srcDefault := col.Source.DefaultExpression
+					if defaultChanged {
+						srcDefault := strings.TrimSpace(defaultClause(col.Source))
 						if srcDefault == "" {
 							srcDefault = "(none)"
 						}
-						tgtDefault := col.Target.DefaultExpression
+						tgtDefault := strings.TrimSpace(defaultClause(col.Target))
 						if tgtDefault == "" {
 							tgtDefault = "(none)"
 						}
@@ -711,10 +713,10 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 					}
 					explanation := "Modify column " + col.Name + " in " + table.Name + " [" + strings.Join(reasons, "; ") + "]"
 					modifyStmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type
-					if col.Target.DefaultExpression != "" {
-						modifyStmt += " DEFAULT " + col.Target.DefaultExpression
-					} else if col.Source.DefaultExpression != "" {
-						modifyStmt += " REMOVE DEFAULT"
+					if tgt := defaultClause(col.Target); tgt != "" {
+						modifyStmt += tgt
+					} else if src := defaultKind(col.Source); src != "" {
+						modifyStmt += " REMOVE " + src
 					}
 					modifyStmt += ";"
 					operations = append(operations, Operation{
@@ -754,6 +756,41 @@ func (g *SyncPlanGenerator) createTableOperation(dbName string, table CombinedTa
 	}
 }
 
+// defaultKind returns the column's default keyword (DEFAULT, MATERIALIZED,
+// ALIAS, EPHEMERAL), or "" when the column has no default. A missing kind
+// with a non-empty expression is treated as DEFAULT.
+func defaultKind(p *ColumnProperties) string {
+	if p.DefaultKind != "" {
+		return strings.ToUpper(p.DefaultKind)
+	}
+	if p.DefaultExpression != "" {
+		return "DEFAULT"
+	}
+	return ""
+}
+
+// defaultClause returns the SQL default clause with a leading space, e.g.
+// " MATERIALIZED toYear(d)", or "" when the column has no default.
+func defaultClause(p *ColumnProperties) string {
+	kind := defaultKind(p)
+	if kind == "" {
+		return ""
+	}
+	if p.DefaultExpression == "" {
+		return " " + kind // EPHEMERAL without an expression
+	}
+	return " " + kind + " " + p.DefaultExpression
+}
+
+// normalizedDefault returns a comparable key for a column's default (kind + expression).
+func normalizedDefault(p *ColumnProperties) string {
+	kind := defaultKind(p)
+	if kind == "" {
+		return ""
+	}
+	return kind + " " + NormalizeDefaultExpression(p.DefaultExpression)
+}
+
 func buildCreateTableSQL(dbName string, table CombinedTable) string {
 	if table.Target == nil {
 		return "CREATE TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + ";"
@@ -766,10 +803,7 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 			continue
 		}
 		props := col.Target
-		def := quoteIdent(col.Name) + " " + props.Type
-		if props.DefaultExpression != "" {
-			def += " DEFAULT " + props.DefaultExpression
-		}
+		def := quoteIdent(col.Name) + " " + props.Type + defaultClause(props)
 		if props.CompressionCodec != "" {
 			def += " " + props.CompressionCodec
 		}

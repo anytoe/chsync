@@ -247,7 +247,7 @@ sequenceDiagram
 | Column position | yes |
 | Column comment | no |
 | Column TTL | no |
-| Column ALIAS / MATERIALIZED / EPHEMERAL | no |
+| Column ALIAS / MATERIALIZED / EPHEMERAL | yes |
 | Table TTL | no |
 | Table comment | no |
 | PARTITION BY change | no |
