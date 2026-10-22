@@ -132,8 +132,11 @@ func NormalizeColumnType(t string, aliases map[string]string) string {
 
 // Column represents a table column
 type Column struct {
-	Name              string
-	Type              string
+	Name string
+	Type string
+	// DefaultKind is DEFAULT, MATERIALIZED, ALIAS or EPHEMERAL (system.columns.default_kind).
+	// Empty means the column has no default. Empty with a non-empty expression is treated as DEFAULT.
+	DefaultKind       string
 	DefaultExpression string
 	CompressionCodec  string
 	Comment           string

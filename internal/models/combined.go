@@ -491,6 +491,7 @@ func columnsFromTarget(cols []Column) []CombinedColumn {
 func columnToProperties(c Column) *ColumnProperties {
 	return &ColumnProperties{
 		Type:              c.Type,
+		DefaultKind:       c.DefaultKind,
 		DefaultExpression: c.DefaultExpression,
 		CompressionCodec:  c.CompressionCodec,
 		Comment:           c.Comment,

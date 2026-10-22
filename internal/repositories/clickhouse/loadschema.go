@@ -508,7 +508,7 @@ func (c *Client) loadColumns(ctx context.Context, databases []string, f Filter) 
 	cond += tableFilterClauses(f, "table") // system.columns uses "table", not "name"
 
 	query := fmt.Sprintf(
-		"SELECT database, table, name, type, default_expression, compression_codec, comment FROM system.columns WHERE %s ORDER BY database, table, position",
+		"SELECT database, table, name, type, default_kind, default_expression, compression_codec, comment FROM system.columns WHERE %s ORDER BY database, table, position",
 		cond,
 	)
 
@@ -522,7 +522,7 @@ func (c *Client) loadColumns(ctx context.Context, databases []string, f Filter) 
 	for rows.Next() {
 		var dbName, tableName string
 		var col models.Column
-		if err := rows.Scan(&dbName, &tableName, &col.Name, &col.Type, &col.DefaultExpression, &col.CompressionCodec, &col.Comment); err != nil {
+		if err := rows.Scan(&dbName, &tableName, &col.Name, &col.Type, &col.DefaultKind, &col.DefaultExpression, &col.CompressionCodec, &col.Comment); err != nil {
 			return nil, fmt.Errorf("scan column: %w", err)
 		}
 		key := dbName + "." + tableName
