@@ -75,6 +75,8 @@ type Table struct {
 	PartitionBy string
 	Settings    map[string]string
 	Projections map[string]string
+	// TTL is the table TTL expression without the TTL keyword, e.g. "d + toIntervalDay(7)".
+	TTL string
 }
 
 // NormalizeEngine strips cloud-specific prefixes from engine names.
@@ -140,4 +142,6 @@ type Column struct {
 	DefaultExpression string
 	CompressionCodec  string
 	Comment           string
+	// TTL is the column TTL expression without the TTL keyword, e.g. "d + toIntervalDay(1)".
+	TTL string
 }

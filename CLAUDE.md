@@ -34,7 +34,8 @@ CLI tool that compares two ClickHouse schemas and generates SQL migration statem
 **Identity:** Two objects (databases, tables, columns) are matched by name within their parent scope. Same name = same object.
 
 **When objects exist in both schemas:**
-- Columns: type or default expression changed → `MODIFY COLUMN`
+- Columns: type, default expression or TTL changed → `MODIFY COLUMN`. A removed default or TTL needs its own `MODIFY COLUMN name REMOVE ...` statement.
+- Tables: TTL changed → `MODIFY TTL` / `REMOVE TTL`
 - Tables: ENGINE or ORDER BY changed → **drop + recreate** (cannot be ALTERed in ClickHouse)
 - Functions: body changed → **drop + recreate**
 

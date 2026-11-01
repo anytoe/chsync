@@ -57,7 +57,7 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 		return nil, fmt.Errorf("load databases: %w", err)
 	}
 
-	tables, err := c.loadTables(ctx, databases, f)
+	tables, tablesWithTTL, err := c.loadTables(ctx, databases, f)
 	if err != nil {
 		return nil, fmt.Errorf("load tables: %w", err)
 	}
@@ -65,6 +65,10 @@ func (c *Client) LoadSchema(ctx context.Context, f Filter) (*models.Schema, erro
 	columns, err := c.loadColumns(ctx, databases, f)
 	if err != nil {
 		return nil, fmt.Errorf("load columns: %w", err)
+	}
+
+	if err := c.loadColumnTTLs(ctx, tablesWithTTL, tables, columns); err != nil {
+		return nil, fmt.Errorf("load column TTLs: %w", err)
 	}
 
 	projections, err := c.loadProjections(ctx, databases, f)
@@ -275,27 +279,30 @@ func (c *Client) loadDatabases(ctx context.Context, f Filter) ([]string, error) 
 }
 
 // loadTables loads all tables for the given databases in a single query.
-// Returns a map keyed by "database.table".
-func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (map[string]models.Table, error) {
+// Returns a map keyed by "database.table" and the keys of tables whose
+// CREATE statement mentions TTL (used to limit DESCRIBE calls).
+func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (map[string]models.Table, []string, error) {
 	cond := fmt.Sprintf("database IN (%s) AND engine NOT IN ('Dictionary', 'MaterializedView', 'View')", quoted(databases))
 	cond += tableFilterClauses(f, "name")
 
 	query := fmt.Sprintf(
-		"SELECT database, name, engine, engine_full, sorting_key, primary_key, partition_key FROM system.tables WHERE %s ORDER BY database, name",
+		"SELECT database, name, engine, engine_full, sorting_key, primary_key, partition_key, position(create_table_query, ' TTL ') > 0 FROM system.tables WHERE %s ORDER BY database, name",
 		cond,
 	)
 
 	rows, err := c.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("query tables: %w", err)
+		return nil, nil, fmt.Errorf("query tables: %w", err)
 	}
 	defer rows.Close()
 
 	tables := make(map[string]models.Table)
+	var tablesWithTTL []string
 	for rows.Next() {
 		var dbName, name, engine, engineFull, sortingKey, primaryKey, partitionKey string
-		if err := rows.Scan(&dbName, &name, &engine, &engineFull, &sortingKey, &primaryKey, &partitionKey); err != nil {
-			return nil, fmt.Errorf("scan table: %w", err)
+		var hasTTL uint8
+		if err := rows.Scan(&dbName, &name, &engine, &engineFull, &sortingKey, &primaryKey, &partitionKey, &hasTTL); err != nil {
+			return nil, nil, fmt.Errorf("scan table: %w", err)
 		}
 
 		normEngine := models.NormalizeEngine(engine)
@@ -305,6 +312,10 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 			EngineArgs:  normalizeEngineArgs(normEngine, engineFull),
 			PartitionBy: partitionKey,
 			Settings:    parseSettings(engineFull),
+			TTL:         parseTTL(engineFull),
+		}
+		if hasTTL == 1 {
+			tablesWithTTL = append(tablesWithTTL, dbName+"."+name)
 		}
 		if sortingKey != "" {
 			table.OrderBy = strings.Split(sortingKey, ", ")
@@ -315,7 +326,7 @@ func (c *Client) loadTables(ctx context.Context, databases []string, f Filter) (
 
 		tables[dbName+"."+name] = table
 	}
-	return tables, rows.Err()
+	return tables, tablesWithTTL, rows.Err()
 }
 
 // replicationParamsRe matches the two leading replication arguments that
@@ -410,6 +421,65 @@ func engineNameLen(engineFull string) int {
 		}
 	}
 	return len(engineFull)
+}
+
+// parseTTL extracts the table TTL expression from a system.tables engine_full
+// string, e.g. "MergeTree ORDER BY a TTL d + toIntervalDay(7) SETTINGS ..."
+// returns "d + toIntervalDay(7)". Returns "" if there is no TTL clause.
+func parseTTL(engineFull string) string {
+	const marker = " TTL "
+	idx := strings.Index(engineFull, marker)
+	if idx == -1 {
+		return ""
+	}
+	rest := engineFull[idx+len(marker):]
+	if end := strings.Index(rest, " SETTINGS "); end != -1 {
+		rest = rest[:end]
+	}
+	return strings.TrimSpace(rest)
+}
+
+// loadColumnTTLs fills Column.TTL for the tables whose CREATE statement
+// mentions TTL. system.columns has no TTL field, so each such table is
+// read with DESCRIBE TABLE, which returns ttl_expression per column.
+func (c *Client) loadColumnTTLs(ctx context.Context, tablesWithTTL []string, tables map[string]models.Table, columns map[string][]models.Column) error {
+	for _, key := range tablesWithTTL {
+		t, ok := tables[key]
+		if !ok {
+			continue
+		}
+		dbName := strings.TrimSuffix(key, "."+t.Name)
+		query := "DESCRIBE TABLE " + quoteIdent(dbName) + "." + quoteIdent(t.Name)
+		rows, err := c.Query(ctx, query)
+		if err != nil {
+			return fmt.Errorf("describe %s: %w", key, err)
+		}
+		ttls := make(map[string]string)
+		for rows.Next() {
+			var name, typ, defaultType, defaultExpr, comment, codec, ttl string
+			if err := rows.Scan(&name, &typ, &defaultType, &defaultExpr, &comment, &codec, &ttl); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan describe %s: %w", key, err)
+			}
+			if ttl != "" {
+				ttls[name] = ttl
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("describe %s: %w", key, err)
+		}
+		cols := columns[key]
+		for i := range cols {
+			cols[i].TTL = ttls[cols[i].Name]
+		}
+	}
+	return nil
+}
+
+// quoteIdent wraps name in backticks, escaping embedded backticks.
+func quoteIdent(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
 // parseSettings extracts the SETTINGS clause from a system.tables engine_full

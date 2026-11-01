@@ -98,6 +98,7 @@ type TableProperties struct {
 	PartitionBy string
 	Settings    map[string]string
 	Projections map[string]string
+	TTL         string
 }
 
 // CombinedColumn represents a column that may exist in source, target, or both
@@ -116,6 +117,7 @@ type ColumnProperties struct {
 	DefaultExpression string
 	CompressionCodec  string
 	Comment           string
+	TTL               string
 }
 
 // NewCombinedSchema creates a CombinedSchema by comparing from (source) and to (target) schemas
@@ -415,6 +417,7 @@ func tableToProperties(t Table) *TableProperties {
 		PartitionBy: t.PartitionBy,
 		Settings:    t.Settings,
 		Projections: t.Projections,
+		TTL:         t.TTL,
 	}
 }
 
@@ -495,5 +498,6 @@ func columnToProperties(c Column) *ColumnProperties {
 		DefaultExpression: c.DefaultExpression,
 		CompressionCodec:  c.CompressionCodec,
 		Comment:           c.Comment,
+		TTL:               c.TTL,
 	}
 }

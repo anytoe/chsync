@@ -246,9 +246,9 @@ sequenceDiagram
 | Column codec (compression) | no |
 | Column position | yes |
 | Column comment | no |
-| Column TTL | no |
+| Column TTL | yes (ALTER MODIFY COLUMN ... TTL / REMOVE TTL) |
 | Column ALIAS / MATERIALIZED / EPHEMERAL | yes |
-| Table TTL | no |
+| Table TTL | yes (ALTER MODIFY TTL / REMOVE TTL) |
 | Table comment | no |
 | PARTITION BY change | no |
 | SAMPLE BY change | no |
