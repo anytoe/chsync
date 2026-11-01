@@ -798,12 +798,12 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 	}
 	sql := fmt.Sprintf("CREATE TABLE %s.%s (%s) ENGINE = %s", quoteIdent(dbName), quoteIdent(table.Name), strings.Join(colDefs, ", "), engine)
 	if len(t.OrderBy) > 0 {
-		sql += " ORDER BY (" + strings.Join(t.OrderBy, ", ") + ")"
+		sql += " ORDER BY " + keyExpression(t.OrderBy)
 	} else if strings.Contains(t.Engine, "MergeTree") {
 		sql += " ORDER BY tuple()"
 	}
 	if len(t.PrimaryKey) > 0 && !equalStringSlices(t.PrimaryKey, t.OrderBy) {
-		sql += " PRIMARY KEY (" + strings.Join(t.PrimaryKey, ", ") + ")"
+		sql += " PRIMARY KEY " + keyExpression(t.PrimaryKey)
 	}
 	if t.PartitionBy != "" {
 		sql += " PARTITION BY " + t.PartitionBy
@@ -821,6 +821,15 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 		sql += " SETTINGS " + strings.Join(pairs, ", ")
 	}
 	return sql + ";"
+}
+
+// keyExpression formats an ORDER BY or PRIMARY KEY column list the way
+// ClickHouse prints it: a single expression bare, several as a tuple.
+func keyExpression(cols []string) string {
+	if len(cols) == 1 {
+		return cols[0]
+	}
+	return "(" + strings.Join(cols, ", ") + ")"
 }
 
 func (g *SyncPlanGenerator) dropTableOperation(dbName string, table CombinedTable) Operation {
