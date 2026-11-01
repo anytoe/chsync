@@ -203,7 +203,197 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String REMOVE DEFAULT;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` REMOVE DEFAULT;"}},
+			},
+		},
+		{
+			name: "column added with DEFAULT literal",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "tags", "Array(String)").
+					setColumnDefault("db1", "users", "tags", "[]").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `tags` Array(String) DEFAULT [] AFTER `name`;"}},
+			},
+		},
+		{
+			name: "column added with DEFAULT expression",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "w", "Nullable(DateTime('UTC'))").
+					setColumnDefault("db1", "users", "w", "toDateTime(d, 'America/New_York')").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `w` Nullable(DateTime('UTC')) DEFAULT toDateTime(d, 'America/New_York') AFTER `name`;"}},
+			},
+		},
+		{
+			name: "column added with MATERIALIZED",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "o", "Bool").
+					setColumnDefaultKind("db1", "users", "o", "MATERIALIZED", "a = b").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `o` Bool MATERIALIZED a = b AFTER `name`;"}},
+			},
+		},
+		{
+			name: "column added with ALIAS",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "x", "UInt64").
+					setColumnDefaultKind("db1", "users", "x", "ALIAS", "a + 1").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `x` UInt64 ALIAS a + 1 AFTER `name`;"}},
+			},
+		},
+		{
+			name: "column added with CODEC and COMMENT",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "c", "String").
+					setColumnCodec("db1", "users", "c", "CODEC(ZSTD(3))").
+					setColumnComment("db1", "users", "c", "it's x").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `c` String CODEC(ZSTD(3)) COMMENT 'it\\'s x' AFTER `name`;"}},
+			},
+		},
+		{
+			// source [id, name, r], target [id, r, name] → r moved forward, keeps its DEFAULT
+			name: "column with DEFAULT moved only",
+			from: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "r", "DateTime64(3, 'UTC')").
+					setColumnDefault("db1", "users", "r", "now64(3, 'UTC')").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "r", "DateTime64(3, 'UTC')", 1).
+					setColumnDefault("db1", "users", "r", "now64(3, 'UTC')").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `r` DateTime64(3, 'UTC') DEFAULT now64(3, 'UTC') AFTER `id`;"}},
+			},
+		},
+		{
+			name: "column type changed keeps DEFAULT",
+			from: func() Schema {
+				return baseSchema().
+					setColumnType("db1", "users", "name", "LowCardinality(String)").
+					setColumnDefault("db1", "users", "name", "''").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setColumnDefault("db1", "users", "name", "''").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String DEFAULT '';"}},
+			},
+		},
+		{
+			name: "column type changed and default removed",
+			from: func() Schema {
+				return baseSchema().
+					setColumnType("db1", "users", "name", "LowCardinality(String)").
+					setColumnDefault("db1", "users", "name", "''").
+					build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String;",
+					"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` REMOVE DEFAULT;",
+				}},
+			},
+		},
+		{
+			name: "column added with TTL",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addColumn("db1", "users", "s", "String").
+					setColumnCodec("db1", "users", "s", "CODEC(ZSTD(1))").
+					setColumnTTL("db1", "users", "s", "d + toIntervalDay(1)").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `s` String CODEC(ZSTD(1)) TTL d + toIntervalDay(1) AFTER `name`;"}},
+			},
+		},
+		{
+			name: "column TTL added",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					setColumnTTL("db1", "users", "name", "d + toIntervalDay(1)").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String TTL d + toIntervalDay(1);"}},
+			},
+		},
+		{
+			name: "column TTL changed keeps DEFAULT",
+			from: func() Schema {
+				return baseSchema().
+					setColumnDefault("db1", "users", "name", "'x'").
+					setColumnTTL("db1", "users", "name", "d + toIntervalDay(1)").
+					build()
+			},
+			to: func() Schema {
+				return baseSchema().
+					setColumnDefault("db1", "users", "name", "'x'").
+					setColumnTTL("db1", "users", "name", "d + toIntervalDay(2)").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` String DEFAULT 'x' TTL d + toIntervalDay(2);"}},
+			},
+		},
+		{
+			name: "column TTL removed",
+			from: func() Schema {
+				return baseSchema().
+					setColumnTTL("db1", "users", "name", "d + toIntervalDay(1)").
+					build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` REMOVE TTL;"}},
+			},
+		},
+		{
+			name: "column default and TTL removed",
+			from: func() Schema {
+				return baseSchema().
+					setColumnDefault("db1", "users", "name", "'x'").
+					setColumnTTL("db1", "users", "name", "d + toIntervalDay(1)").
+					build()
+			},
+			to: func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelColumn, action: ActionAlter, statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` REMOVE DEFAULT;",
+					"ALTER TABLE `db1`.`users` MODIFY COLUMN `name` REMOVE TTL;",
+				}},
 			},
 		},
 		{
@@ -238,7 +428,7 @@ func TestSyncPlanGenerator_ColumnOperations(t *testing.T) {
 					build()
 			},
 			wantOperations: []expectedOperation{
-				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `year` UInt16 REMOVE MATERIALIZED;"}},
+				{level: LevelColumn, action: ActionAlter, statements: []string{"ALTER TABLE `db1`.`users` MODIFY COLUMN `year` REMOVE MATERIALIZED;"}},
 			},
 		},
 		{
@@ -317,6 +507,62 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
 					"CREATE TABLE `db1`.`products` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id);",
+				}},
+			},
+		},
+		{
+			name: "table created with TTL",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addTable("db1", "events", "MergeTree", []string{"id"}, []Column{
+						{Name: "id", Type: "Int32"},
+						{Name: "d", Type: "DateTime"},
+					}).
+					setTableTTL("db1", "events", "d + toIntervalDay(7)").
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
+					"CREATE TABLE `db1`.`events` (`id` Int32, `d` DateTime) ENGINE = MergeTree ORDER BY (id) TTL d + toIntervalDay(7);",
+				}},
+			},
+		},
+		{
+			name: "table TTL added",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().setTableTTL("db1", "users", "d + toIntervalDay(7)").build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, canLoseData: boolPtr(true), statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY TTL d + toIntervalDay(7);",
+				}},
+			},
+		},
+		{
+			name: "table TTL changed",
+			from: func() Schema {
+				return baseSchema().setTableTTL("db1", "users", "d + toIntervalDay(7)").build()
+			},
+			to: func() Schema {
+				return baseSchema().setTableTTL("db1", "users", "d + toIntervalDay(30)").build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, canLoseData: boolPtr(true), statements: []string{
+					"ALTER TABLE `db1`.`users` MODIFY TTL d + toIntervalDay(30);",
+				}},
+			},
+		},
+		{
+			name: "table TTL removed",
+			from: func() Schema {
+				return baseSchema().setTableTTL("db1", "users", "d + toIntervalDay(7)").build()
+			},
+			to:   func() Schema { return baseSchema().build() },
+			wantOperations: []expectedOperation{
+				{level: LevelTable, action: ActionAlter, canLoseData: boolPtr(false), statements: []string{
+					"ALTER TABLE `db1`.`users` REMOVE TTL;",
 				}},
 			},
 		},

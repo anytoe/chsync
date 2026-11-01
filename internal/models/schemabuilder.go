@@ -75,6 +75,7 @@ func (b *schemaBuilder) clone() *schemaBuilder {
 				Settings:    make(map[string]string),
 				Projections: make(map[string]string),
 				Columns:     make([]Column, len(tbl.Columns)),
+				TTL:         tbl.TTL,
 			}
 			for k, v := range tbl.Settings {
 				cloned.schema.Databases[i].Tables[j].Settings[k] = v
@@ -90,6 +91,7 @@ func (b *schemaBuilder) clone() *schemaBuilder {
 					DefaultExpression: col.DefaultExpression,
 					CompressionCodec:  col.CompressionCodec,
 					Comment:           col.Comment,
+					TTL:               col.TTL,
 				}
 			}
 		}
@@ -196,6 +198,58 @@ func (b *schemaBuilder) setColumnDefaultKind(dbName, tableName, colName, kind, d
 				if b.schema.Databases[i].Tables[j].Columns[k].Name == colName {
 					b.schema.Databases[i].Tables[j].Columns[k].DefaultKind = kind
 					b.schema.Databases[i].Tables[j].Columns[k].DefaultExpression = defaultExpr
+					return b
+				}
+			}
+		}
+	}
+	return b
+}
+
+// setColumnCodec sets the compression codec of a column, e.g. "CODEC(ZSTD(3))".
+func (b *schemaBuilder) setColumnCodec(dbName, tableName, colName, codec string) *schemaBuilder {
+	return b.updateColumn(dbName, tableName, colName, func(c *Column) { c.CompressionCodec = codec })
+}
+
+// setColumnComment sets the comment of a column.
+func (b *schemaBuilder) setColumnComment(dbName, tableName, colName, comment string) *schemaBuilder {
+	return b.updateColumn(dbName, tableName, colName, func(c *Column) { c.Comment = comment })
+}
+
+// setColumnTTL sets the TTL expression of a column. Empty removes it.
+func (b *schemaBuilder) setColumnTTL(dbName, tableName, colName, ttl string) *schemaBuilder {
+	return b.updateColumn(dbName, tableName, colName, func(c *Column) { c.TTL = ttl })
+}
+
+// setTableTTL sets the TTL expression of a table. Empty removes it.
+func (b *schemaBuilder) setTableTTL(dbName, tableName, ttl string) *schemaBuilder {
+	for i := range b.schema.Databases {
+		if b.schema.Databases[i].Name != dbName {
+			continue
+		}
+		for j := range b.schema.Databases[i].Tables {
+			if b.schema.Databases[i].Tables[j].Name == tableName {
+				b.schema.Databases[i].Tables[j].TTL = ttl
+				return b
+			}
+		}
+	}
+	return b
+}
+
+// updateColumn applies fn to the named column. Does nothing if the column is not found.
+func (b *schemaBuilder) updateColumn(dbName, tableName, colName string, fn func(*Column)) *schemaBuilder {
+	for i := range b.schema.Databases {
+		if b.schema.Databases[i].Name != dbName {
+			continue
+		}
+		for j := range b.schema.Databases[i].Tables {
+			if b.schema.Databases[i].Tables[j].Name != tableName {
+				continue
+			}
+			for k := range b.schema.Databases[i].Tables[j].Columns {
+				if b.schema.Databases[i].Tables[j].Columns[k].Name == colName {
+					fn(&b.schema.Databases[i].Tables[j].Columns[k])
 					return b
 				}
 			}

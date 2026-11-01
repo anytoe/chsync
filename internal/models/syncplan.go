@@ -424,6 +424,11 @@ func (g *SyncPlanGenerator) processTableChanges(dbName string, table CombinedTab
 			operations = append(operations, ops...)
 		}
 
+		// Table TTL differences are emitted as ALTER MODIFY TTL / REMOVE TTL.
+		if op, ok := g.tableTTLOperation(dbName, table); ok {
+			operations = append(operations, op)
+		}
+
 		// Projection differences: ADD for target-only, DROP for source-only,
 		// DROP+ADD when bodies differ. Operators run MATERIALIZE PROJECTION
 		// themselves when they want historical data backfilled.
@@ -489,6 +494,33 @@ func (g *SyncPlanGenerator) settingsOperations(dbName string, table CombinedTabl
 		})
 	}
 	return ops
+}
+
+// tableTTLOperation returns an ALTER TABLE MODIFY TTL or REMOVE TTL operation
+// when the table TTL differs between source and target.
+func (g *SyncPlanGenerator) tableTTLOperation(dbName string, table CombinedTable) (Operation, bool) {
+	src := table.Source.TTL
+	tgt := table.Target.TTL
+	if src == tgt {
+		return Operation{}, false
+	}
+	qname := quoteIdent(dbName) + "." + quoteIdent(table.Name)
+	if tgt == "" {
+		return Operation{
+			Level:       LevelTable,
+			Action:      ActionAlter,
+			CanLoseData: false,
+			Statements:  []string{"ALTER TABLE " + qname + " REMOVE TTL;"},
+			Explanation: "Remove TTL from " + table.Name,
+		}, true
+	}
+	return Operation{
+		Level:       LevelTable,
+		Action:      ActionAlter,
+		CanLoseData: true,
+		Statements:  []string{"ALTER TABLE " + qname + " MODIFY TTL " + tgt + ";"},
+		Explanation: "Modify TTL on " + table.Name + " (expired rows are deleted on the next merge)",
+	}, true
 }
 
 // projectionOperations diffs source vs target table projections and emits
@@ -659,7 +691,7 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 		case Target:
 			// Check if this is a rename target
 			if !isRenameTarget(col.Name, renamedColumns) {
-				stmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " ADD COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type
+				stmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " ADD COLUMN " + columnDefinition(col.Name, col.Target)
 				if pos := positionClause(col.Name); pos != "" {
 					stmt += " " + pos
 				}
@@ -695,46 +727,37 @@ func (g *SyncPlanGenerator) processColumnsInTable(dbName string, table CombinedT
 			if col.Source != nil && col.Target != nil {
 				typeChanged := NormalizeColumnType(col.Source.Type, g.config.TypeAliases) != NormalizeColumnType(col.Target.Type, g.config.TypeAliases)
 				defaultChanged := normalizedDefault(col.Source) != normalizedDefault(col.Target)
-				if typeChanged || defaultChanged {
+				ttlChanged := col.Source.TTL != col.Target.TTL
+				if typeChanged || defaultChanged || ttlChanged {
 					var reasons []string
 					if typeChanged {
 						reasons = append(reasons, "type: "+col.Source.Type+" → "+col.Target.Type+" (mutation, runs in background)")
 					}
 					if defaultChanged {
-						srcDefault := strings.TrimSpace(defaultClause(col.Source))
-						if srcDefault == "" {
-							srcDefault = "(none)"
-						}
-						tgtDefault := strings.TrimSpace(defaultClause(col.Target))
-						if tgtDefault == "" {
-							tgtDefault = "(none)"
-						}
-						reasons = append(reasons, "default: "+srcDefault+" → "+tgtDefault)
+						reasons = append(reasons, "default: "+orNone(strings.TrimSpace(defaultClause(col.Source)))+" → "+orNone(strings.TrimSpace(defaultClause(col.Target))))
+					}
+					if ttlChanged {
+						reasons = append(reasons, "ttl: "+orNone(col.Source.TTL)+" → "+orNone(col.Target.TTL))
 					}
 					explanation := "Modify column " + col.Name + " in " + table.Name + " [" + strings.Join(reasons, "; ") + "]"
-					modifyStmt := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type
-					if tgt := defaultClause(col.Target); tgt != "" {
-						modifyStmt += tgt
-					} else if src := defaultKind(col.Source); src != "" {
-						modifyStmt += " REMOVE " + src
-					}
-					modifyStmt += ";"
 					operations = append(operations, Operation{
 						Level:       LevelColumn,
 						Action:      ActionAlter,
 						CanLoseData: false,
-						Statements:  []string{modifyStmt},
+						Statements:  modifyColumnStatements(dbName, table.Name, col, typeChanged, defaultChanged, ttlChanged),
 						Explanation: explanation,
 					})
 				} else if tgtRankAmongCommon[col.Name] < srcRankAmongCommon[col.Name] {
 					// Position-only change: column moved to an earlier position in the table.
 					// Only forward moves are emitted; columns that shift backward do so automatically
 					// once the forward-moving columns are repositioned.
+					// ClickHouse keeps the default, codec and comment when MODIFY COLUMN omits them,
+					// but the full definition is emitted so the statement reads like the snapshot.
 					operations = append(operations, Operation{
 						Level:       LevelColumn,
 						Action:      ActionAlter,
 						CanLoseData: false,
-						Statements:  []string{"ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + quoteIdent(col.Name) + " " + col.Target.Type + " " + positionClause(col.Name) + ";"},
+						Statements:  []string{"ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(table.Name) + " MODIFY COLUMN " + columnDefinition(col.Name, col.Target) + " " + positionClause(col.Name) + ";"},
 						Explanation: "Move column " + col.Name + " in " + table.Name,
 					})
 				}
@@ -782,6 +805,67 @@ func defaultClause(p *ColumnProperties) string {
 	return " " + kind + " " + p.DefaultExpression
 }
 
+// modifyColumnStatements builds the ALTER statements that turn the source
+// column into the target column. A property that the target no longer has
+// needs its own "MODIFY COLUMN name REMOVE <property>" statement: ClickHouse
+// rejects REMOVE when a type or other property is given in the same statement.
+func modifyColumnStatements(dbName, tableName string, col CombinedColumn, typeChanged, defaultChanged, ttlChanged bool) []string {
+	prefix := "ALTER TABLE " + quoteIdent(dbName) + "." + quoteIdent(tableName) + " MODIFY COLUMN " + quoteIdent(col.Name)
+	tgt := col.Target
+
+	removeDefault := defaultChanged && defaultKind(tgt) == ""
+	removeTTL := ttlChanged && tgt.TTL == ""
+	modify := typeChanged || (defaultChanged && !removeDefault) || (ttlChanged && !removeTTL)
+
+	var stmts []string
+	if modify {
+		stmts = append(stmts, prefix+" "+tgt.Type+defaultClause(tgt)+ttlClause(tgt)+";")
+	}
+	if removeDefault {
+		stmts = append(stmts, prefix+" REMOVE "+defaultKind(col.Source)+";")
+	}
+	if removeTTL {
+		stmts = append(stmts, prefix+" REMOVE TTL;")
+	}
+	return stmts
+}
+
+// orNone returns s, or "(none)" when s is empty.
+func orNone(s string) string {
+	if s == "" {
+		return "(none)"
+	}
+	return s
+}
+
+// ttlClause returns " TTL <expr>" or "" when the column has no TTL.
+func ttlClause(p *ColumnProperties) string {
+	if p.TTL == "" {
+		return ""
+	}
+	return " TTL " + p.TTL
+}
+
+// columnDefinition returns the full column declaration used in CREATE TABLE,
+// ADD COLUMN and MODIFY COLUMN: name, type, default clause, codec, comment and TTL.
+func columnDefinition(name string, p *ColumnProperties) string {
+	def := quoteIdent(name) + " " + p.Type + defaultClause(p)
+	if p.CompressionCodec != "" {
+		def += " " + p.CompressionCodec
+	}
+	if p.Comment != "" {
+		def += " COMMENT " + quoteString(p.Comment)
+	}
+	return def + ttlClause(p)
+}
+
+// quoteString returns s as a single-quoted SQL string literal.
+func quoteString(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "'", "\\'")
+	return "'" + s + "'"
+}
+
 // normalizedDefault returns a comparable key for a column's default (kind + expression).
 func normalizedDefault(p *ColumnProperties) string {
 	kind := defaultKind(p)
@@ -802,15 +886,7 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 		if col.Presence == Source {
 			continue
 		}
-		props := col.Target
-		def := quoteIdent(col.Name) + " " + props.Type + defaultClause(props)
-		if props.CompressionCodec != "" {
-			def += " " + props.CompressionCodec
-		}
-		if props.Comment != "" {
-			def += " COMMENT '" + props.Comment + "'"
-		}
-		colDefs = append(colDefs, def)
+		colDefs = append(colDefs, columnDefinition(col.Name, col.Target))
 	}
 
 	t := table.Target
@@ -841,6 +917,9 @@ func buildCreateTableSQL(dbName string, table CombinedTable) string {
 	}
 	if t.PartitionBy != "" {
 		sql += " PARTITION BY " + t.PartitionBy
+	}
+	if t.TTL != "" {
+		sql += " TTL " + t.TTL
 	}
 	if len(t.Settings) > 0 {
 		keys := make([]string, 0, len(t.Settings))

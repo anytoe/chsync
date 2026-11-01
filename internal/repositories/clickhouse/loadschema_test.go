@@ -64,6 +64,26 @@ func TestParseSettings(t *testing.T) {
 	}
 }
 
+func TestParseTTL(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "no TTL", in: "MergeTree ORDER BY id SETTINGS index_granularity = 8192", want: ""},
+		{name: "TTL before SETTINGS", in: "MergeTree ORDER BY id TTL d + toIntervalDay(7) SETTINGS index_granularity = 8192", want: "d + toIntervalDay(7)"},
+		{name: "TTL at end", in: "MergeTree ORDER BY id TTL d + toIntervalDay(7)", want: "d + toIntervalDay(7)"},
+		{name: "TTL with TO DISK and DELETE", in: "MergeTree ORDER BY id TTL d + toIntervalDay(1) TO DISK 'cold', d + toIntervalDay(7) DELETE SETTINGS index_granularity = 8192", want: "d + toIntervalDay(1) TO DISK 'cold', d + toIntervalDay(7) DELETE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseTTL(tt.in); got != tt.want {
+				t.Errorf("parseTTL(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseEngineArgs(t *testing.T) {
 	tests := []struct {
 		name string
