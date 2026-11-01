@@ -506,7 +506,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE `db1`.`products` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`products` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY id;",
 				}},
 			},
 		},
@@ -614,7 +614,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 				// Engine change typically requires drop + create
 				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = ReplacingMergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = ReplacingMergeTree ORDER BY id;",
 				}},
 			},
 		},
@@ -634,7 +634,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = ReplacingMergeTree(xo_received_at) ORDER BY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = ReplacingMergeTree(xo_received_at) ORDER BY id;",
 				}},
 			},
 		},
@@ -669,7 +669,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionDrop, canLoseData: boolPtr(true), statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY id;",
 				}},
 			},
 		},
@@ -685,7 +685,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`users`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id, name) PRIMARY KEY (id);",
+					"CREATE TABLE `db1`.`users` (`id` Int32, `name` String) ENGINE = MergeTree ORDER BY (id, name) PRIMARY KEY id;",
 				}},
 			},
 		},
@@ -703,7 +703,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`orders`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE `db1`.`purchases` (`id` Int32) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`purchases` (`id` Int32) ENGINE = MergeTree ORDER BY id;",
 				}},
 			},
 		},
@@ -1080,7 +1080,7 @@ func TestSyncPlanGenerator_MixedOperations(t *testing.T) {
 				{level: LevelColumn, action: ActionCreate, statements: []string{"ALTER TABLE `db1`.`users` ADD COLUMN `email` String AFTER `name`;"}},
 				{level: LevelTable, action: ActionDrop, statements: []string{"DROP TABLE IF EXISTS `db1`.`orders`;"}},
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE `db1`.`products` (`id` Int32) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`products` (`id` Int32) ENGINE = MergeTree ORDER BY id;",
 				}},
 			},
 		},
@@ -1321,7 +1321,7 @@ func TestSyncPlanGenerator_TableProjections(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, statements: []string{
-					"CREATE TABLE `db1`.`events` (`id` Int32, `user_id` Int32, PROJECTION proj_by_user (SELECT * ORDER BY user_id)) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`events` (`id` Int32, `user_id` Int32, PROJECTION proj_by_user (SELECT * ORDER BY user_id)) ENGINE = MergeTree ORDER BY id;",
 				}},
 			},
 		},
