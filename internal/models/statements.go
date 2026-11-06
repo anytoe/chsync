@@ -57,10 +57,12 @@ func (stmts *SQLStatements) header() string {
 	return fmt.Sprintf("--------------------------------------------------\n--- Version: %s ------------------------\n--------------------------------------------------\n\n", stmts.Version)
 }
 
-// cleanupSharedMergeTree removes Shared prefix and replication parameters from engine definitions
-// Transforms:
+// cleanupSharedMergeTree removes the ClickHouse Cloud "Shared" prefix and
+// replication parameters from engine definitions, so the snapshot replays on
+// a plain ClickHouse server. Transforms:
 // - SharedMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}') -> MergeTree()
 // - SharedReplacingMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}', modified_at) -> ReplacingMergeTree(modified_at)
+// - SharedJoin(ANY, LEFT, k) -> Join(ANY, LEFT, k), SharedSet -> Set
 func cleanupSharedMergeTree(sql string) string {
 	// Case 1: With additional parameters after replica (has comma after replica)
 	// Remove Shared prefix and replication params, keep everything after the comma (and any trailing space)
@@ -71,6 +73,11 @@ func cleanupSharedMergeTree(sql string) string {
 	// Remove Shared prefix and replication params, leave empty parens
 	patternNoParams := regexp.MustCompile(`Shared(\w*MergeTree)\('/clickhouse/tables/\{uuid\}/\{shard\}', '\{replica\}'\)`)
 	sql = patternNoParams.ReplaceAllString(sql, `$1()`)
+
+	// Case 3: Cloud-only Join/Set engines carry no replication params.
+	// SharedJoin(ANY, LEFT, k) -> Join(ANY, LEFT, k), SharedSet -> Set
+	patternJoinSet := regexp.MustCompile(`ENGINE = Shared(Join|Set)\b`)
+	sql = patternJoinSet.ReplaceAllString(sql, `ENGINE = $1`)
 
 	return sql
 }

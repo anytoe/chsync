@@ -31,6 +31,16 @@ func TestCleanupSharedMergeTree(t *testing.T) {
 			expected: "ENGINE = CollapsingMergeTree(sign)",
 		},
 		{
+			name:     "SharedJoin strips prefix and keeps args",
+			input:    "ENGINE = SharedJoin(ANY, LEFT, market_dma);",
+			expected: "ENGINE = Join(ANY, LEFT, market_dma);",
+		},
+		{
+			name:     "SharedSet strips prefix",
+			input:    "ENGINE = SharedSet;",
+			expected: "ENGINE = Set;",
+		},
+		{
 			name:     "Regular MergeTree unchanged",
 			input:    "ENGINE = MergeTree() ORDER BY id",
 			expected: "ENGINE = MergeTree() ORDER BY id",
