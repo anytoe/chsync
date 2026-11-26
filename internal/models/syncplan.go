@@ -116,6 +116,8 @@ func (g *SyncPlanGenerator) buildHybridStrategy(combined *CombinedSchema) Strate
 				Statements:    []string{"CREATE DATABASE " + quoteIdent(db.Name) + ";"},
 				Explanation:   "Create database " + db.Name,
 			})
+			// A new database has only target tables: create each one.
+			operations = append(operations, g.processTablesInDatabase(db)...)
 		case Source:
 			operations = append(operations, Operation{
 				Level:         LevelDatabase,

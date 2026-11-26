@@ -30,3 +30,6 @@ go.work
 
 # Local planning notes (not for upstream)
 plans/
+
+# Scratch files
+.tmp/

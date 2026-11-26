@@ -157,6 +157,7 @@ func (c *Client) loadViews(ctx context.Context, databases []string, f Filter) ([
 		if err := rows.Scan(&v.Database, &v.Name, &v.CreateQuery); err != nil {
 			return nil, fmt.Errorf("scan view: %w", err)
 		}
+		v.CreateQuery = models.NormalizeQueryParameters(v.CreateQuery)
 		views = append(views, v)
 	}
 	return views, rows.Err()
