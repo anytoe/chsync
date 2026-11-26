@@ -524,7 +524,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE `db1`.`events` (`id` Int32, `d` DateTime) ENGINE = MergeTree ORDER BY (id) TTL d + toIntervalDay(7);",
+					"CREATE TABLE `db1`.`events` (`id` Int32, `d` DateTime) ENGINE = MergeTree ORDER BY id TTL d + toIntervalDay(7);",
 				}},
 			},
 		},
@@ -582,7 +582,7 @@ func TestSyncPlanGenerator_TableOperations(t *testing.T) {
 			},
 			wantOperations: []expectedOperation{
 				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{
-					"CREATE TABLE `db1`.`events` (`id` Int32, `d` Date DEFAULT today(), `y` UInt16 MATERIALIZED toYear(d), `ds` String ALIAS toString(d), `tmp` String EPHEMERAL) ENGINE = MergeTree ORDER BY (id);",
+					"CREATE TABLE `db1`.`events` (`id` Int32, `d` Date DEFAULT today(), `y` UInt16 MATERIALIZED toYear(d), `ds` String ALIAS toString(d), `tmp` String EPHEMERAL) ENGINE = MergeTree ORDER BY id;",
 				}},
 			},
 		},
