@@ -293,3 +293,50 @@ func containsAt(s, substr string) bool {
 	}
 	return false
 }
+
+func TestNormalizeQueryParameters(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "spaces inside braces",
+			input:    "WHERE brand_id IN ({ brand_ids:Array(UInt32) })",
+			expected: "WHERE brand_id IN ({brand_ids:Array(UInt32)})",
+		},
+		{
+			name:     "space before closing brace",
+			input:    "WHERE d >= {from:Date }",
+			expected: "WHERE d >= {from:Date}",
+		},
+		{
+			name:     "parameter split over lines",
+			input:    "d >= {\n    from\n      :Date }",
+			expected: "d >= {from:Date}",
+		},
+		{
+			name:     "whitespace inside the type stays",
+			input:    "{ ts:DateTime64(3, 'UTC') }",
+			expected: "{ts:DateTime64(3, 'UTC')}",
+		},
+		{
+			name:     "string literal unchanged",
+			input:    `SELECT '{ a: b }', 'it\'s { c: d }'`,
+			expected: `SELECT '{ a: b }', 'it\'s { c: d }'`,
+		},
+		{
+			name:     "macro without type unchanged",
+			input:    "MergeTree('/clickhouse/tables/{uuid}/{shard}')",
+			expected: "MergeTree('/clickhouse/tables/{uuid}/{shard}')",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeQueryParameters(tt.input); got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}

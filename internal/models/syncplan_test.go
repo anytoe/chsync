@@ -787,6 +787,20 @@ func TestSyncPlanGenerator_DatabaseOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "database created with a table",
+			from: func() Schema { return baseSchema().build() },
+			to: func() Schema {
+				return baseSchema().
+					addDatabase("db2").
+					addTable("db2", "snacks", "MergeTree", []string{"id"}, []Column{{Name: "id", Type: "UInt64"}}).
+					build()
+			},
+			wantOperations: []expectedOperation{
+				{level: LevelDatabase, action: ActionCreate, canLoseData: boolPtr(false), statements: []string{"CREATE DATABASE `db2`;"}},
+				{level: LevelTable, action: ActionCreate, canLoseData: boolPtr(false)},
+			},
+		},
+		{
 			name: "database dropped",
 			from: func() Schema {
 				return baseSchema().

@@ -100,3 +100,46 @@ func addTimeTypeSetting(sql string) string {
 	// Add new SETTINGS clause before the semicolon
 	return regexp.MustCompile(`;`).ReplaceAllString(sql, ` SETTINGS enable_time_time64_type = 1;`)
 }
+
+var queryParameterPattern = regexp.MustCompile(`^\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^{}]*?)\s*\}`)
+
+// NormalizeQueryParameters removes the whitespace around the name and the type
+// of each query parameter: "{ ids:Array(UInt32) }" -> "{ids:Array(UInt32)}".
+// The SQL formatter adds this whitespace, and ClickHouse then keeps it as part
+// of the parameter type. Quoted strings and identifiers stay as they are.
+func NormalizeQueryParameters(sql string) string {
+	var b strings.Builder
+	for i := 0; i < len(sql); {
+		switch c := sql[i]; c {
+		case '\'', '"', '`':
+			end := quotedEnd(sql, i)
+			b.WriteString(sql[i:end])
+			i = end
+		case '{':
+			if m := queryParameterPattern.FindStringSubmatch(sql[i:]); m != nil {
+				b.WriteString("{" + m[1] + ":" + m[2] + "}")
+				i += len(m[0])
+				continue
+			}
+			fallthrough
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+// quotedEnd returns the index after the quoted text that starts at sql[start].
+func quotedEnd(sql string, start int) int {
+	quote := sql[start]
+	for i := start + 1; i < len(sql); i++ {
+		switch sql[i] {
+		case '\\':
+			i++
+		case quote:
+			return i + 1
+		}
+	}
+	return len(sql)
+}

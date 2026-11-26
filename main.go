@@ -218,7 +218,7 @@ func generateMigrationSQL(ctx context.Context, fromCh, toCh *clickhouse.Client, 
 			}
 			output += "\n"
 		}
-		output = sqlfmt.Format(output)
+		output = formatSQL(output)
 	}
 
 	if output != "" && !strings.HasSuffix(output, "\n") {
@@ -271,7 +271,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 		infof("Verification passed\n")
 	}
 
-	newSQL := sqlfmt.Format(stmts.ToStatements())
+	newSQL := formatSQL(stmts.ToStatements())
 	if !strings.HasSuffix(newSQL, "\n") {
 		newSQL += "\n"
 	}
@@ -362,6 +362,13 @@ func writeChangelog(ctx context.Context, newStmts *models.SQLStatements, newSQL 
 	}
 	infof("Changelog written to %s\n", logFile)
 	return nil
+}
+
+// formatSQL formats SQL for output. The formatter puts whitespace inside query
+// parameters ("{ ids:Array(UInt32) }"), which ClickHouse keeps as part of the
+// parameter type, so that whitespace is removed again.
+func formatSQL(sql string) string {
+	return models.NormalizeQueryParameters(sqlfmt.Format(sql))
 }
 
 // atomicWriteFile writes data to path via a sibling .tmp file then renames it
